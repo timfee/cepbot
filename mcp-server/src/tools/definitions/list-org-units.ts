@@ -47,8 +47,20 @@ export function registerListOrgUnitsTool(server: McpServer): void {
         return {
           content: [
             {
-              text: `Organizational Units:\n${JSON.stringify(orgUnits, null, 2)}`,
+              text: `Organizational Units (${orgUnits.length}):\n${orgUnits
+                .map(
+                  (ou) => `- ${ou.name} [${ou.orgUnitId}] (${ou.orgUnitPath})`
+                )
+                .join("\n")}`,
               type: "text" as const,
+            },
+            {
+              resource: {
+                mimeType: "application/json",
+                text: JSON.stringify(orgUnits, null, 2),
+                uri: "https://admin.google.com/ac/orgunits",
+              },
+              type: "resource" as const,
             },
           ],
         };

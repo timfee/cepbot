@@ -137,6 +137,22 @@ describe("guarded-tool-call", () => {
       );
     });
 
+    it("normalizes orgUnitIds array by stripping id: prefix", async () => {
+      const handler = vi.fn().mockResolvedValue({
+        content: [{ text: "ok", type: "text" as const }],
+      });
+
+      const wrapped = guardedToolCall({ handler, skipAutoResolve: true });
+      await wrapped({ orgUnitIds: ["id:aaa", "bbb", "id:ccc"] }, noopContext);
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgUnitIds: ["aaa", "bbb", "ccc"],
+        }),
+        noopContext
+      );
+    });
+
     it("applies custom transform", async () => {
       const handler = vi.fn().mockResolvedValue({
         content: [{ text: "ok", type: "text" as const }],

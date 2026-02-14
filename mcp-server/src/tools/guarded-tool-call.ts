@@ -38,6 +38,7 @@ export const customerIdCache = new CustomerIdCache();
 interface ToolParams {
   customerId?: string;
   orgUnitId?: string;
+  orgUnitIds?: string[];
   [key: string]: unknown;
 }
 
@@ -47,10 +48,12 @@ interface ToolContext {
   };
 }
 
-interface ToolContent {
-  text: string;
-  type: "text";
-}
+type ToolContent =
+  | { text: string; type: "text" }
+  | {
+      resource: { mimeType?: string; text: string; uri: string };
+      type: "resource";
+    };
 
 interface ToolResult {
   [key: string]: unknown;
@@ -69,6 +72,11 @@ function commonTransform<TParams extends ToolParams>(params: TParams): TParams {
   const newParams = { ...params };
   if (newParams.orgUnitId) {
     newParams.orgUnitId = validateAndGetOrgUnitId(newParams.orgUnitId);
+  }
+  if (Array.isArray(newParams.orgUnitIds)) {
+    newParams.orgUnitIds = newParams.orgUnitIds.map((id: string) =>
+      validateAndGetOrgUnitId(id)
+    );
   }
   return newParams;
 }

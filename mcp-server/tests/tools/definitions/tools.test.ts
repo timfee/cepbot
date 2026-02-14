@@ -70,7 +70,7 @@ type ToolHandler = (
     requestInfo?: { headers?: { authorization?: string } };
   }
 ) => Promise<{
-  content: { text: string; type: string }[];
+  content: Record<string, unknown>[];
   isError?: boolean;
 }>;
 
@@ -137,12 +137,21 @@ describe("tool definitions", () => {
   describe("list_org_units", () => {
     const handler = captureHandler(registerListOrgUnitsTool);
 
-    it("returns org units", async () => {
+    it("returns org units as names in text and full JSON as resource", async () => {
       vi.mocked(listOrgUnits).mockResolvedValue([
         { name: "Sales", orgUnitId: "1", orgUnitPath: "/Sales" },
       ]);
       const result = await handler({ customerId: "C012345" }, ctx);
-      expect(result.content[0].text).toContain("Sales");
+      expect(result.content[0].text).toContain("- Sales [1] (/Sales)");
+      expect(result.content[0].text).toContain("Organizational Units (1)");
+      expect(result.content[1]).toStrictEqual({
+        resource: {
+          mimeType: "application/json",
+          text: expect.stringContaining('"name": "Sales"'),
+          uri: "https://admin.google.com/ac/orgunits",
+        },
+        type: "resource",
+      });
     });
 
     it("returns message when no org units", async () => {
@@ -520,7 +529,7 @@ describe("tool definitions", () => {
   describe("get_connector_policy", () => {
     const handler = captureHandler(registerGetConnectorPolicyTool);
 
-    it("returns connector policy when data exists", async () => {
+    it("returns configured status when data exists", async () => {
       vi.mocked(getConnectorPolicy).mockResolvedValue({
         resolvedPolicies: [{ value: "test" }],
       });
@@ -532,10 +541,11 @@ describe("tool definitions", () => {
         },
         ctx
       );
-      expect(result.content[0].text).toContain("Connector policy");
+      expect(result.content[0].text).toContain("Configured (1)");
+      expect(result.content[0].text).toContain("ou123: policies active");
     });
 
-    it("returns no-policy message when resolvedPolicies is empty", async () => {
+    it("returns not-configured status when resolvedPolicies is empty", async () => {
       vi.mocked(getConnectorPolicy).mockResolvedValue({});
       const result = await handler(
         {
@@ -545,12 +555,11 @@ describe("tool definitions", () => {
         },
         ctx
       );
-      expect(result.content[0].text).toContain(
-        "No connector policies configured"
-      );
+      expect(result.content[0].text).toContain("Not configured (1)");
+      expect(result.content[0].text).toContain("ou123: no policies");
     });
 
-    it("handles 404 gracefully as no policy configured", async () => {
+    it("handles 404 gracefully as not configured", async () => {
       const { GoogleApiError } = await import("@lib/api/fetch");
       vi.mocked(getConnectorPolicy).mockRejectedValue(
         new GoogleApiError(404, '{"error":{"code":404}}')
@@ -563,13 +572,11 @@ describe("tool definitions", () => {
         },
         ctx
       );
-      expect(result.content[0].text).toContain(
-        "No connector policies configured"
-      );
+      expect(result.content[0].text).toContain("Not configured (1)");
       expect(result.isError).toBeUndefined();
     });
 
-    it("re-throws non-404 errors", async () => {
+    it("reports non-404 errors per org unit", async () => {
       const { GoogleApiError } = await import("@lib/api/fetch");
       vi.mocked(getConnectorPolicy).mockRejectedValue(
         new GoogleApiError(403, "permission denied")
@@ -582,8 +589,22 @@ describe("tool definitions", () => {
         },
         ctx
       );
-      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Errors (1)");
       expect(result.content[0].text).toContain("permission denied");
+    });
+
+    it("handles non-Error throws in error reporting", async () => {
+      vi.mocked(getConnectorPolicy).mockRejectedValue("string error");
+      const result = await handler(
+        {
+          customerId: "C012345",
+          orgUnitId: "ou123",
+          policy: "ALL",
+        },
+        ctx
+      );
+      expect(result.content[0].text).toContain("Errors (1)");
+      expect(result.content[0].text).toContain("string error");
     });
 
     it("uses wildcard filter when policy is ALL", async () => {
@@ -621,6 +642,78 @@ describe("tool definitions", () => {
         null,
         "test-tok"
       );
+    });
+
+    it("batches multiple orgUnitIds in parallel", async () => {
+      vi.mocked(getConnectorPolicy)
+        .mockResolvedValueOnce({
+          resolvedPolicies: [{ value: "test" }],
+        })
+        .mockResolvedValueOnce({});
+      const result = await handler(
+        {
+          customerId: "C012345",
+          orgUnitIds: ["ou1", "ou2"],
+          policy: "ALL",
+        },
+        ctx
+      );
+      expect(getConnectorPolicy).toHaveBeenCalledTimes(2);
+      expect(result.content[0].text).toContain("2 org units");
+      expect(result.content[0].text).toContain("Configured (1)");
+      expect(result.content[0].text).toContain("Not configured (1)");
+    });
+
+    it("handles mixed success and failure in batch", async () => {
+      const { GoogleApiError } = await import("@lib/api/fetch");
+      vi.mocked(getConnectorPolicy)
+        .mockResolvedValueOnce({
+          resolvedPolicies: [{ value: "ok" }],
+        })
+        .mockRejectedValueOnce(new GoogleApiError(404, "not found"))
+        .mockRejectedValueOnce(new GoogleApiError(403, "denied"));
+      const result = await handler(
+        {
+          customerId: "C012345",
+          orgUnitIds: ["ou1", "ou2", "ou3"],
+          policy: "ALL",
+        },
+        ctx
+      );
+      expect(result.content[0].text).toContain("Configured (1)");
+      expect(result.content[0].text).toContain("Not configured (1)");
+      expect(result.content[0].text).toContain("Errors (1)");
+    });
+
+    it("returns validation error when no orgUnitId or orgUnitIds", async () => {
+      const result = await handler(
+        { customerId: "C012345", policy: "ALL" },
+        ctx
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain(
+        "provide either orgUnitId or orgUnitIds"
+      );
+    });
+
+    it("returns embedded resource with full results JSON", async () => {
+      vi.mocked(getConnectorPolicy).mockResolvedValue({});
+      const result = await handler(
+        {
+          customerId: "C012345",
+          orgUnitId: "ou123",
+          policy: "ALL",
+        },
+        ctx
+      );
+      expect(result.content[1]).toStrictEqual({
+        resource: {
+          mimeType: "application/json",
+          text: expect.stringContaining('"orgUnitId": "ou123"'),
+          uri: "https://admin.google.com/ac/orgunits",
+        },
+        type: "resource",
+      });
     });
   });
 });

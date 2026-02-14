@@ -1,6 +1,6 @@
 /**
  * Tool definition: checks whether Chrome Enterprise connectors are
- * properly configured for a given organizational unit.
+ * properly configured for one or more organizational units.
  */
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
@@ -15,6 +15,79 @@ import { guardedToolCall } from "@tools/guarded-tool-call";
 import { commonSchemas, getAuthToken } from "@tools/schemas";
 import { z } from "zod";
 
+interface OrgUnitResult {
+  data?: unknown;
+  error?: string;
+  orgUnitId: string;
+  status: "configured" | "error" | "not_configured";
+}
+
+async function fetchPolicyForOrgUnit(
+  customerId: string,
+  orgUnitId: string,
+  policySchemaFilter: string,
+  authToken: string | null
+): Promise<OrgUnitResult> {
+  try {
+    const policies = await getConnectorPolicy(
+      customerId,
+      orgUnitId,
+      policySchemaFilter,
+      null,
+      authToken
+    );
+
+    const hasData =
+      policies.resolvedPolicies && policies.resolvedPolicies.length > 0;
+
+    return hasData
+      ? { data: policies, orgUnitId, status: "configured" }
+      : { orgUnitId, status: "not_configured" };
+  } catch (error: unknown) {
+    if (error instanceof GoogleApiError && error.status === 404) {
+      return { orgUnitId, status: "not_configured" };
+    }
+    return {
+      error: error instanceof Error ? error.message : String(error),
+      orgUnitId,
+      status: "error",
+    };
+  }
+}
+
+function formatResults(results: OrgUnitResult[], filter: string) {
+  const configured = results.filter((r) => r.status === "configured");
+  const notConfigured = results.filter((r) => r.status === "not_configured");
+  const errors = results.filter((r) => r.status === "error");
+
+  const lines: string[] = [
+    `Connector policy results (${results.length} org units, filter: ${filter}):`,
+  ];
+
+  if (configured.length > 0) {
+    lines.push(`\nConfigured (${configured.length}):`);
+    for (const r of configured) {
+      lines.push(`- ${r.orgUnitId}: policies active`);
+    }
+  }
+
+  if (notConfigured.length > 0) {
+    lines.push(`\nNot configured (${notConfigured.length}):`);
+    for (const r of notConfigured) {
+      lines.push(`- ${r.orgUnitId}: no policies`);
+    }
+  }
+
+  if (errors.length > 0) {
+    lines.push(`\nErrors (${errors.length}):`);
+    for (const r of errors) {
+      lines.push(`- ${r.orgUnitId}: ${r.error}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
 /**
  * Registers the get_connector_policy tool with the MCP server.
  */
@@ -28,12 +101,18 @@ export function registerGetConnectorPolicyTool(server: McpServer): void {
         readOnlyHint: true,
       },
       description:
-        "Retrieves the configuration status for Chrome Enterprise connectors. Pass a specific policy name to check one connector, or 'ALL' to fetch all connector policies in a single call. Returns the resolved policy configuration or indicates when no policy is configured.",
+        "Retrieves the configuration status for Chrome Enterprise connectors. Accepts a single orgUnitId or multiple orgUnitIds for batch checking (all queried in parallel). Pass 'ALL' as the policy to fetch every connector type in one call.",
       inputSchema: {
         customerId: commonSchemas.customerId,
-        orgUnitId: commonSchemas.orgUnitId.describe(
-          "The ID of the organizational unit to filter results."
-        ),
+        orgUnitId: commonSchemas.orgUnitId
+          .optional()
+          .describe("A single org unit ID. Use orgUnitIds for batch queries."),
+        orgUnitIds: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Multiple org unit IDs to check in parallel. Preferred for health checks."
+          ),
         policy: z
           .enum([
             "ALL",
@@ -50,46 +129,54 @@ export function registerGetConnectorPolicyTool(server: McpServer): void {
       title: "Get Connector Policy",
     },
     guardedToolCall({
-      handler: async ({ customerId, orgUnitId, policy }, { requestInfo }) => {
+      handler: async (
+        { customerId, orgUnitId, orgUnitIds, policy },
+        { requestInfo }
+      ) => {
         const authToken = getAuthToken(requestInfo);
         const policySchemaFilter =
           policy === "ALL" ? CONNECTOR_WILDCARD : ConnectorPolicyFilter[policy];
 
-        try {
-          const policies = await getConnectorPolicy(
-            customerId ?? "",
-            orgUnitId,
-            policySchemaFilter,
-            null,
-            authToken
-          );
+        const ids: string[] = orgUnitIds ?? (orgUnitId ? [orgUnitId] : []);
 
-          const hasData =
-            policies.resolvedPolicies && policies.resolvedPolicies.length > 0;
-
+        if (ids.length === 0) {
           return {
             content: [
               {
-                text: hasData
-                  ? `Connector policy:\n${JSON.stringify(policies, null, 2)}`
-                  : `No connector policies configured for this organizational unit (filter: ${policySchemaFilter}).`,
+                text: "Error: provide either orgUnitId or orgUnitIds.",
                 type: "text" as const,
               },
             ],
+            isError: true,
           };
-        } catch (error: unknown) {
-          if (error instanceof GoogleApiError && error.status === 404) {
-            return {
-              content: [
-                {
-                  text: `No connector policies configured for this organizational unit (filter: ${policySchemaFilter}).`,
-                  type: "text" as const,
-                },
-              ],
-            };
-          }
-          throw error;
         }
+
+        const resolved = await Promise.all(
+          ids.map((id) =>
+            fetchPolicyForOrgUnit(
+              customerId ?? "",
+              id,
+              policySchemaFilter,
+              authToken
+            )
+          )
+        );
+
+        const text = formatResults(resolved, policySchemaFilter);
+
+        return {
+          content: [
+            { text, type: "text" as const },
+            {
+              resource: {
+                mimeType: "application/json",
+                text: JSON.stringify(resolved, null, 2),
+                uri: "https://admin.google.com/ac/orgunits",
+              },
+              type: "resource" as const,
+            },
+          ],
+        };
       },
     })
   );

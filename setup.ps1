@@ -27,6 +27,13 @@ function Invoke-CepbotSetup {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # When invoked via "irm … | iex", execution policy is bypassed for the
+    # script text itself, but child .ps1 shims on disk (npm.ps1, gemini.ps1,
+    # etc.) are still subject to the machine policy and will fail with
+    # "UnauthorizedAccess". Relax the policy for this process only — this does
+    # not persist after the terminal is closed and does not require admin.
+    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
     # ------ helpers ----------------------------------------------------------
 
     function Write-Step {
@@ -81,6 +88,29 @@ function Invoke-CepbotSetup {
         }
     }
 
+    function Write-UacWarning {
+        # Warn the user about an incoming UAC prompt that may appear behind
+        # the current window, and attempt to flash the taskbar so they notice.
+        Write-Host ''
+        Write-Host '   ** A UAC (admin) prompt may appear BEHIND this window. **' -ForegroundColor Yellow
+        Write-Host '   ** Check your taskbar if the install seems to hang.     **' -ForegroundColor Yellow
+        Write-Host ''
+
+        # Best-effort: flash the console window's taskbar button so the user
+        # notices something needs attention even if UAC lands behind it.
+        try {
+            $flashInfo = Add-Type -MemberDefinition @'
+[DllImport("user32.dll")] public static extern bool FlashWindow(IntPtr hwnd, bool bInvert);
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+'@ -Name 'WinAPI' -Namespace 'UacFlash' -PassThru -ErrorAction SilentlyContinue
+            $hwnd = [UacFlash.WinAPI]::GetConsoleWindow()
+            if ($hwnd -ne [IntPtr]::Zero) {
+                [void][UacFlash.WinAPI]::FlashWindow($hwnd, $true)
+            }
+        }
+        catch {}
+    }
+
     # ------ pre-flight -------------------------------------------------------
 
     Write-Host ''
@@ -108,6 +138,7 @@ function Invoke-CepbotSetup {
         }
         else {
             Write-Warn "Found node $nodeVersion - upgrading to latest LTS..."
+            Write-UacWarning
             winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
             if (-not (Assert-ExitCode 'Node.js install')) { return }
             Update-SessionPath
@@ -115,6 +146,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Node.js LTS...'
+        Write-UacWarning
         winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
         if (-not (Assert-ExitCode 'Node.js install')) { return }
         Update-SessionPath
@@ -149,7 +181,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Google Cloud CLI...'
-        winget install --id Google.CloudSDK --source winget --accept-source-agreements --accept-package-agreements
+        winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements
         if (-not (Assert-ExitCode 'Google Cloud CLI install')) { return }
         Update-SessionPath
     }

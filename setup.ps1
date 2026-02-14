@@ -25,10 +25,7 @@
 # returns do not leak into the caller's session (important for irm | iex).
 function Invoke-CepbotSetup {
     Set-StrictMode -Version Latest
-    # Use 'Continue' (the default) so that stderr output from native commands
-    # (winget, npm, gcloud, gemini) does not become a terminating error.
-    # Error handling is done explicitly via Assert-ExitCode / Test-Command.
-    $ErrorActionPreference = 'Continue'
+    $ErrorActionPreference = 'Stop'
 
     # When invoked via "irm … | iex", execution policy is bypassed for the
     # script text itself, but child .ps1 shims on disk (npm.ps1, gemini.ps1,
@@ -78,6 +75,23 @@ function Invoke-CepbotSetup {
         return $true
     }
 
+    function Invoke-Native {
+        # Run a native command (exe / cmd / ps1 shim) without letting its
+        # stderr output become a terminating error under $ErrorActionPreference
+        # = 'Stop'.  Stderr is merged into stdout so it displays as normal
+        # text instead of scary red.  $LASTEXITCODE is preserved for the
+        # caller's Assert-ExitCode check.
+        param([scriptblock]$Command)
+        $saved = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            & $Command 2>&1
+        }
+        finally {
+            $ErrorActionPreference = $saved
+        }
+    }
+
     function Update-SessionPath {
         # Merge newly-registered PATH entries into the current session
         # without discarding session-only paths (e.g. from conda, nvm).
@@ -92,17 +106,13 @@ function Invoke-CepbotSetup {
     }
 
     function Write-UacWarning {
-        # Warn the user about an incoming UAC prompt that may appear behind
-        # the current window, and attempt to flash the taskbar so they notice.
         Write-Host ''
         Write-Host '   ** A UAC (admin) prompt may appear BEHIND this window. **' -ForegroundColor Yellow
         Write-Host '   ** Check your taskbar if the install seems to hang.     **' -ForegroundColor Yellow
         Write-Host ''
 
-        # Best-effort: flash the console window's taskbar button so the user
-        # notices something needs attention even if UAC lands behind it.
         try {
-            $flashInfo = Add-Type -MemberDefinition @'
+            Add-Type -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool FlashWindow(IntPtr hwnd, bool bInvert);
 [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
 '@ -Name 'WinAPI' -Namespace 'UacFlash' -PassThru -ErrorAction SilentlyContinue
@@ -142,7 +152,7 @@ function Invoke-CepbotSetup {
         else {
             Write-Warn "Found node $nodeVersion - upgrading to latest LTS..."
             Write-UacWarning
-            winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
+            Invoke-Native { winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements }
             if (-not (Assert-ExitCode 'Node.js install')) { return }
             Update-SessionPath
         }
@@ -150,7 +160,7 @@ function Invoke-CepbotSetup {
     else {
         Write-Host '   Installing Node.js LTS...'
         Write-UacWarning
-        winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
+        Invoke-Native { winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Node.js install')) { return }
         Update-SessionPath
     }
@@ -192,7 +202,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Google Cloud CLI...'
-        winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements
+        Invoke-Native { winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Google Cloud CLI install')) { return }
         Update-SessionPath
     }
@@ -210,7 +220,7 @@ function Invoke-CepbotSetup {
 
     $geminiInstalled = Test-Command 'gemini'
     if (-not $geminiInstalled -and (Test-Command 'npm')) {
-        $npmOutput = & npm list -g @google/gemini-cli 2>&1 | Out-String
+        $npmOutput = Invoke-Native { npm list -g @google/gemini-cli } | Out-String
         $geminiInstalled = $npmOutput -match '@google/gemini-cli'
     }
 
@@ -219,7 +229,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Gemini CLI globally...'
-        npm install -g @google/gemini-cli 2>&1
+        Invoke-Native { npm install -g @google/gemini-cli }
         if (-not (Assert-ExitCode 'Gemini CLI install')) { return }
     }
 
@@ -265,7 +275,7 @@ function Invoke-CepbotSetup {
     }
 
     if ($shouldAuth) {
-        gcloud auth application-default login --scopes=$scopes 2>&1
+        Invoke-Native { gcloud auth application-default login --scopes=$scopes }
         if (-not (Assert-ExitCode 'Authentication')) {
             Write-Host '   Authentication was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
             return
@@ -278,7 +288,7 @@ function Invoke-CepbotSetup {
     Write-Step '5/5  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
-    gemini extensions install https://github.com/timfee/cepbot 2>&1
+    Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
     if (-not (Assert-ExitCode 'Extension install')) { return }
     Write-Ok 'cepbot extension installed'
 

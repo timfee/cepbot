@@ -130,7 +130,15 @@ function Invoke-CepbotSetup {
         Write-Host '   Close this terminal, open a new one, and re-run the script.' -ForegroundColor Yellow
         return
     }
-    Write-Ok "node $(node --version)"
+
+    # Re-check version after any install/upgrade
+    $nodeVersion = (node --version) -replace '^v', ''
+    $nodeMajor = [int]($nodeVersion -split '\.')[0]
+    if ($nodeMajor -lt 20) {
+        Write-Fail "node $nodeVersion is on PATH but >= 20 is required. Remove the old version or adjust PATH."
+        return
+    }
+    Write-Ok "node $nodeVersion"
 
     # ------ 2. Google Cloud CLI -----------------------------------------------
 
@@ -175,6 +183,11 @@ function Invoke-CepbotSetup {
     if (-not (Test-Command 'gemini')) {
         # npm global bin may not be on PATH yet
         Update-SessionPath
+    }
+    if (-not (Test-Command 'gemini')) {
+        Write-Fail 'gemini is not on PATH. Check that the npm global bin directory is in your PATH.'
+        Write-Host '   Close this terminal, open a new one, and re-run the script.' -ForegroundColor Yellow
+        return
     }
     Write-Ok 'gemini CLI ready'
 

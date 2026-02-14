@@ -75,7 +75,14 @@ has() { command -v "$1" >/dev/null 2>&1; }
 
 USED_SUDO=0
 TMPFILES=()
-run_sudo() { USED_SUDO=1; sudo "$@"; }
+run_sudo() {
+  if [ "$(id -u)" = 0 ]; then
+    "$@"
+  else
+    USED_SUDO=1
+    sudo "$@"
+  fi
+}
 
 cleanup() {
   # ${#arr[@]} is safe under set -u on bash 3.2; ${arr[@]} is not.
@@ -173,7 +180,14 @@ fi
 
 has node || fail 'node is not on PATH after install. Restart your shell and re-run.'
 has npm  || fail 'npm is not on PATH. The Node.js installation may be incomplete.'
-ok "node $(node --version)"
+
+# Re-check version after any install/upgrade
+node_version="$(node --version | sed 's/^v//')"
+node_major="${node_version%%.*}"
+if ! [ "$node_major" -ge 20 ] 2>/dev/null; then
+  fail "node v${node_version} is on PATH but >= 20 is required. Remove the old version or adjust PATH."
+fi
+ok "node v${node_version}"
 
 # ---------- 3. Google Cloud CLI -----------------------------------------------
 
@@ -196,6 +210,10 @@ else
       fi
     done
   elif has apt-get; then
+    if ! has gpg; then
+      echo '   Installing gnupg (needed for repository signing)...'
+      run_sudo apt-get install -y gnupg
+    fi
     curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
       | run_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \

@@ -11,7 +11,7 @@ Chrome enterprise security management.
 gemini extensions install https://github.com/timfee/cepbot
 ```
 
-This registers the extension with [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli).
+This registers the extension with [Gemini CLI](https://github.com/google-gemini/gemini-cli).
 After installation, authenticate with the required scopes (see [Authentication](#authentication))
 and start Gemini CLI to begin using the extension.
 

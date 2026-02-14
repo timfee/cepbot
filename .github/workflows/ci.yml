@@ -35,10 +35,11 @@ jobs:
         run: npm run build
 
       - name: Test
+        id: test
         run: npm test
 
       - name: Coverage Report
-        if: always() && github.event_name == 'pull_request'
+        if: (!cancelled()) && steps.test.conclusion != 'skipped' && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           working-directory: mcp-server

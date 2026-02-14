@@ -64,24 +64,24 @@ cepbot/
 - Application Default Credentials configured with required scopes
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli) (for extension usage)
 
-### Windows Quick Setup
+### Quick Setup
 
-Run the setup script in PowerShell to install all prerequisites, authenticate,
-and register the extension in one step:
+Both scripts install Node.js, gcloud CLI, and Gemini CLI, then walk you through
+Google Cloud authentication with the required OAuth scopes.
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/timfee/cepbot/main/setup.sh | bash
+```
+
+**Windows** (PowerShell):
 
 ```powershell
 irm https://raw.githubusercontent.com/timfee/cepbot/main/setup.ps1 | iex
 ```
 
-Or clone the repo first and run locally:
-
-```powershell
-.\setup.ps1
-```
-
-The script installs Node.js, gcloud CLI, and Gemini CLI via
-[winget](https://aka.ms/getwinget) (built into Windows 10/11), then walks you
-through Google Cloud authentication with the required OAuth scopes.
+Or clone the repo first and run `./setup.sh` or `.\setup.ps1` locally.
 
 ## Development Setup
 

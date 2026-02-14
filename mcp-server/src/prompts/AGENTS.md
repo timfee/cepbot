@@ -5,11 +5,11 @@ definitions.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `register.ts` | Registers all prompts with the MCP server |
-| `content.ts` | Shared persona preamble, task instructions, and `buildPromptResult()` builder |
-| `definitions/` | Individual prompt implementations (see `definitions/AGENTS.md`) |
+| File           | Purpose                                                                       |
+| -------------- | ----------------------------------------------------------------------------- |
+| `register.ts`  | Registers all prompts with the MCP server                                     |
+| `content.ts`   | Shared persona preamble, task instructions, and `buildPromptResult()` builder |
+| `definitions/` | Individual prompt implementations (see `definitions/AGENTS.md`)               |
 
 ## Conventions
 

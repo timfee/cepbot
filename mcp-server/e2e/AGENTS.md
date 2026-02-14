@@ -18,17 +18,18 @@ npm run test:e2e
 
 ## Test Files
 
-| File | Scope |
-|---|---|
-| `admin-sdk.e2e.test.ts` | `getCustomerId`, `listOrgUnits`, `listChromeActivities` |
-| `chrome-management.e2e.test.ts` | `countBrowserVersions`, `listCustomerProfiles` |
-| `chrome-policy.e2e.test.ts` | `getConnectorPolicy` with all schema filters |
-| `cloud-identity.e2e.test.ts` | DLP policy listing and filtering |
-| `dlp-rules.e2e.ts` | DLP rule filtering with ground-truth validation |
+| File                            | Scope                                                   |
+| ------------------------------- | ------------------------------------------------------- |
+| `admin-sdk.e2e.test.ts`         | `getCustomerId`, `listOrgUnits`, `listChromeActivities` |
+| `chrome-management.e2e.test.ts` | `countBrowserVersions`, `listCustomerProfiles`          |
+| `chrome-policy.e2e.test.ts`     | `getConnectorPolicy` with all schema filters            |
+| `cloud-identity.e2e.test.ts`    | DLP policy listing and filtering                        |
+| `dlp-rules.e2e.ts`              | DLP rule filtering with ground-truth validation         |
 
 ## Test Pattern
 
 Tests use a **ground-truth comparison** pattern:
+
 1. Direct GET fetches a specific known resource (always succeeds)
 2. Filtered list query tests constructed filters
 3. Comparison verifies the known resource appears in filtered results

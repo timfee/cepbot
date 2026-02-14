@@ -25,7 +25,10 @@
 # returns do not leak into the caller's session (important for irm | iex).
 function Invoke-CepbotSetup {
     Set-StrictMode -Version Latest
-    $ErrorActionPreference = 'Stop'
+    # Use 'Continue' (the default) so that stderr output from native commands
+    # (winget, npm, gcloud, gemini) does not become a terminating error.
+    # Error handling is done explicitly via Assert-ExitCode / Test-Command.
+    $ErrorActionPreference = 'Continue'
 
     # When invoked via "irm … | iex", execution policy is bypassed for the
     # script text itself, but child .ps1 shims on disk (npm.ps1, gemini.ps1,

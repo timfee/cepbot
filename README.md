@@ -5,6 +5,16 @@ Premium: browser policies, Data Loss Prevention rules, activity monitoring, and
 organizational unit configuration. Built as a Gemini extension for AI-assisted
 Chrome enterprise security management.
 
+## Install
+
+```bash
+gemini extensions install https://github.com/timfee/cepbot
+```
+
+This registers the extension with [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli).
+After installation, authenticate with the required scopes (see [Authentication](#authentication))
+and start Gemini CLI to begin using the extension.
+
 ## Architecture
 
 ```

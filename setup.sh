@@ -35,7 +35,7 @@ OS="$(uname -s)"
 # ---------- 1. Homebrew (macOS only) ------------------------------------------
 
 if [ "$OS" = "Darwin" ]; then
-  step '1/5  Homebrew'
+  step '1/6  Homebrew'
 
   if has brew; then
     skip "brew $(brew --version | head -n1)"
@@ -49,13 +49,13 @@ if [ "$OS" = "Darwin" ]; then
     fi
   fi
 else
-  step '1/5  Package manager'
+  step '1/6  Package manager'
   ok "Using system package manager ($(uname -s))"
 fi
 
 # ---------- 2. Node.js -------------------------------------------------------
 
-step '2/5  Node.js (>= 20)'
+step '2/6  Node.js (>= 20)'
 
 install_node() {
   if [ "$OS" = "Darwin" ]; then
@@ -87,11 +87,12 @@ else
 fi
 
 has node || fail 'node is not on PATH after install. Restart your shell and re-run.'
+has npm  || fail 'npm is not on PATH. The Node.js installation may be incomplete.'
 ok "node $(node --version)"
 
 # ---------- 3. Google Cloud CLI -----------------------------------------------
 
-step '3/5  Google Cloud CLI'
+step '3/6  Google Cloud CLI'
 
 if has gcloud; then
   skip "gcloud $(gcloud version 2>&1 | head -n1)"
@@ -126,7 +127,7 @@ ok 'gcloud CLI ready'
 
 # ---------- 4. Gemini CLI ----------------------------------------------------
 
-step '4/5  Gemini CLI'
+step '4/6  Gemini CLI'
 
 if has gemini || npm list -g @google/gemini-cli >/dev/null 2>&1; then
   skip 'gemini'
@@ -138,7 +139,7 @@ ok 'gemini CLI ready'
 
 # ---------- 5. Authenticate ---------------------------------------------------
 
-step '5/5  Google Cloud authentication'
+step '5/6  Google Cloud authentication'
 
 SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly,\
 https://www.googleapis.com/auth/admin.directory.orgunit.readonly,\

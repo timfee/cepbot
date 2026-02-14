@@ -75,6 +75,23 @@ function Invoke-CepbotSetup {
         return $true
     }
 
+    function Invoke-Native {
+        # Run a native command (exe / cmd / ps1 shim) without letting its
+        # stderr output become a terminating error under $ErrorActionPreference
+        # = 'Stop'.  Stderr is merged into stdout so it displays as normal
+        # text instead of scary red.  $LASTEXITCODE is preserved for the
+        # caller's Assert-ExitCode check.
+        param([scriptblock]$Command)
+        $saved = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = 'Continue'
+            & $Command 2>&1
+        }
+        finally {
+            $ErrorActionPreference = $saved
+        }
+    }
+
     function Update-SessionPath {
         # Merge newly-registered PATH entries into the current session
         # without discarding session-only paths (e.g. from conda, nvm).
@@ -89,17 +106,13 @@ function Invoke-CepbotSetup {
     }
 
     function Write-UacWarning {
-        # Warn the user about an incoming UAC prompt that may appear behind
-        # the current window, and attempt to flash the taskbar so they notice.
         Write-Host ''
         Write-Host '   ** A UAC (admin) prompt may appear BEHIND this window. **' -ForegroundColor Yellow
         Write-Host '   ** Check your taskbar if the install seems to hang.     **' -ForegroundColor Yellow
         Write-Host ''
 
-        # Best-effort: flash the console window's taskbar button so the user
-        # notices something needs attention even if UAC lands behind it.
         try {
-            $flashInfo = Add-Type -MemberDefinition @'
+            $null = Add-Type -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool FlashWindow(IntPtr hwnd, bool bInvert);
 [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
 '@ -Name 'WinAPI' -Namespace 'UacFlash' -PassThru -ErrorAction SilentlyContinue
@@ -139,7 +152,7 @@ function Invoke-CepbotSetup {
         else {
             Write-Warn "Found node $nodeVersion - upgrading to latest LTS..."
             Write-UacWarning
-            winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
+            Invoke-Native { winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements }
             if (-not (Assert-ExitCode 'Node.js install')) { return }
             Update-SessionPath
         }
@@ -147,7 +160,7 @@ function Invoke-CepbotSetup {
     else {
         Write-Host '   Installing Node.js LTS...'
         Write-UacWarning
-        winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
+        Invoke-Native { winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Node.js install')) { return }
         Update-SessionPath
     }
@@ -185,11 +198,12 @@ function Invoke-CepbotSetup {
     Write-Step '2/5  Google Cloud CLI'
 
     if (Test-Command 'gcloud') {
-        Write-Skip "gcloud $(gcloud version 2>&1 | Select-Object -First 1)"
+        $gcloudVer = Invoke-Native { gcloud version } | Select-Object -First 1
+        Write-Skip "gcloud $gcloudVer"
     }
     else {
         Write-Host '   Installing Google Cloud CLI...'
-        winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements
+        Invoke-Native { winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Google Cloud CLI install')) { return }
         Update-SessionPath
     }
@@ -207,7 +221,7 @@ function Invoke-CepbotSetup {
 
     $geminiInstalled = Test-Command 'gemini'
     if (-not $geminiInstalled -and (Test-Command 'npm')) {
-        $npmOutput = & npm list -g @google/gemini-cli 2>&1 | Out-String
+        $npmOutput = Invoke-Native { npm list -g @google/gemini-cli } | Out-String
         $geminiInstalled = $npmOutput -match '@google/gemini-cli'
     }
 
@@ -216,7 +230,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Gemini CLI globally...'
-        npm install -g @google/gemini-cli
+        Invoke-Native { npm install -g @google/gemini-cli }
         if (-not (Assert-ExitCode 'Gemini CLI install')) { return }
     }
 
@@ -246,7 +260,7 @@ function Invoke-CepbotSetup {
         'https://www.googleapis.com/auth/cloud-platform'
     ) -join ','
 
-    $adcPath = Join-Path $env:APPDATA 'gcloud' 'application_default_credentials.json'
+    $adcPath = Join-Path (Join-Path $env:APPDATA 'gcloud') 'application_default_credentials.json'
 
     $shouldAuth = $true
     if (Test-Path $adcPath) {
@@ -262,7 +276,7 @@ function Invoke-CepbotSetup {
     }
 
     if ($shouldAuth) {
-        gcloud auth application-default login --scopes=$scopes
+        Invoke-Native { gcloud auth application-default login --scopes=$scopes }
         if (-not (Assert-ExitCode 'Authentication')) {
             Write-Host '   Authentication was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
             return
@@ -275,7 +289,7 @@ function Invoke-CepbotSetup {
     Write-Step '5/5  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
-    gemini extensions install https://github.com/timfee/cepbot
+    Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
     if (-not (Assert-ExitCode 'Extension install')) { return }
     Write-Ok 'cepbot extension installed'
 

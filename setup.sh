@@ -13,15 +13,68 @@
 
 set -euo pipefail
 
+# ---------- shell check -------------------------------------------------------
+
+if [ -z "${BASH_VERSION:-}" ]; then
+  printf 'Error: this script requires bash. Run with: bash setup.sh\n' >&2
+  exit 1
+fi
+
+# ---------- stdin / TTY -------------------------------------------------------
+#
+# When piped via curl|bash, stdin is the script itself, not the user's keyboard.
+# Reconnect stdin to the real terminal so interactive prompts work, or fall back
+# to non-interactive mode if no terminal is available.
+
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
+
+if [ ! -t 0 ]; then
+  # Test if /dev/tty is actually usable before redirecting stdin
+  if [ -r /dev/tty ] && (echo < /dev/tty) 2>/dev/null; then
+    exec < /dev/tty
+  else
+    NONINTERACTIVE=1
+  fi
+fi
+
+# ---------- platform ----------------------------------------------------------
+
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+
+# Detect Rosetta 2 on Apple Silicon
+if [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
+  if sysctl hw.optional.arm64 2>/dev/null | grep -q ': 1'; then
+    ARCH="arm64"
+  fi
+fi
+
 # ---------- helpers -----------------------------------------------------------
 
-step()  { printf '\n\033[36m>> %s\033[0m\n' "$1"; }
-ok()    { printf '   \033[32m%s\033[0m\n' "$1"; }
-skip()  { printf '   \033[90m%s (already installed)\033[0m\n' "$1"; }
-warn()  { printf '   \033[33m%s\033[0m\n' "$1"; }
-fail()  { printf '   \033[31mERROR: %s\033[0m\n' "$1"; exit 1; }
+if [ -t 1 ]; then
+  CYAN='\033[36m'  GREEN='\033[32m'  DIM='\033[90m'
+  YELLOW='\033[33m'  RED='\033[31m'  RESET='\033[0m'
+else
+  CYAN=''  GREEN=''  DIM=''  YELLOW=''  RED=''  RESET=''
+fi
+
+step()  { printf "\n${CYAN}>> %s${RESET}\n" "$1"; }
+ok()    { printf "   ${GREEN}%s${RESET}\n" "$1"; }
+skip()  { printf "   ${DIM}%s (already installed)${RESET}\n" "$1"; }
+warn()  { printf "   ${YELLOW}%s${RESET}\n" "$1" >&2; }
+fail()  { printf "   ${RED}ERROR: %s${RESET}\n" "$1" >&2; exit 1; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+USED_SUDO=0
+run_sudo() { USED_SUDO=1; sudo "$@"; }
+
+cleanup() {
+  if [ "$USED_SUDO" = "1" ] && has sudo; then
+    sudo -k 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT
 
 # ---------- pre-flight --------------------------------------------------------
 
@@ -30,15 +83,22 @@ echo '  Chrome Enterprise Premium Bot — Setup'
 echo '  ======================================'
 echo ''
 
-OS="$(uname -s)"
+for cmd in curl; do
+  has "$cmd" || fail "'$cmd' is required but not found. Please install it first."
+done
 
-# ---------- 1. Homebrew (macOS only) ------------------------------------------
+if [ "$OS" = "Linux" ]; then
+  has apt-get || has dnf || fail \
+    "No supported package manager found (need apt-get or dnf). Install prerequisites manually."
+fi
+
+# ---------- 1. Homebrew (macOS only) / package manager check ------------------
 
 if [ "$OS" = "Darwin" ]; then
   step '1/6  Homebrew'
 
   if has brew; then
-    skip "brew $(brew --version | head -n1)"
+    skip "brew $(brew --version 2>&1 | sed -n '1p')"
   else
     echo '   Installing Homebrew...'
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -50,7 +110,7 @@ if [ "$OS" = "Darwin" ]; then
   fi
 else
   step '1/6  Package manager'
-  ok "Using system package manager ($(uname -s))"
+  ok "Using system package manager ($OS)"
 fi
 
 # ---------- 2. Node.js -------------------------------------------------------
@@ -60,13 +120,26 @@ step '2/6  Node.js (>= 20)'
 install_node() {
   if [ "$OS" = "Darwin" ]; then
     brew install node@22
-    brew link --overwrite node@22
+    # node@22 is keg-only; link it to make it available on PATH
+    brew link --force --overwrite node@22 2>/dev/null || true
+    # Fall back to adding the keg's bin directly
+    if ! has node; then
+      export PATH="/opt/homebrew/opt/node@22/bin:/usr/local/opt/node@22/bin:$PATH"
+    fi
   elif has apt-get; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-    sudo apt-get install -y nodejs
+    local setup_script
+    setup_script="$(mktemp)"
+    curl -fsSL https://deb.nodesource.com/setup_22.x -o "$setup_script"
+    run_sudo bash "$setup_script"
+    rm -f "$setup_script"
+    run_sudo apt-get install -y nodejs
   elif has dnf; then
-    curl -fsSL https://rpm.nodesource.com/setup_22.x | sudo bash -
-    sudo dnf install -y nodejs
+    local setup_script
+    setup_script="$(mktemp)"
+    curl -fsSL https://rpm.nodesource.com/setup_22.x -o "$setup_script"
+    run_sudo bash "$setup_script"
+    rm -f "$setup_script"
+    run_sudo dnf install -y nodejs
   else
     fail 'Unsupported package manager. Install Node.js 20+ manually: https://nodejs.org'
   fi
@@ -75,14 +148,14 @@ install_node() {
 if has node; then
   node_version="$(node --version | sed 's/^v//')"
   node_major="${node_version%%.*}"
-  if [ "$node_major" -ge 20 ]; then
+  if [ "$node_major" -ge 20 ] 2>/dev/null; then
     skip "node v${node_version}"
   else
     warn "Found node v${node_version} — upgrading..."
     install_node
   fi
 else
-  echo '   Installing Node.js LTS...'
+  echo '   Installing Node.js 22...'
   install_node
 fi
 
@@ -95,28 +168,27 @@ ok "node $(node --version)"
 step '3/6  Google Cloud CLI'
 
 if has gcloud; then
-  skip "gcloud $(gcloud version 2>&1 | head -n1)"
+  skip "gcloud $(gcloud version 2>&1 | sed -n '1p')"
 else
   if [ "$OS" = "Darwin" ]; then
     brew install --cask google-cloud-sdk
   elif has apt-get; then
-    # Debian / Ubuntu
     curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-      | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      | run_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
-      | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
-    sudo apt-get update && sudo apt-get install -y google-cloud-cli
+      | run_sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list > /dev/null
+    run_sudo apt-get update && run_sudo apt-get install -y google-cloud-cli
   elif has dnf; then
-    sudo tee /etc/yum.repos.d/google-cloud-sdk.repo <<'REPO'
+    run_sudo tee /etc/yum.repos.d/google-cloud-sdk.repo > /dev/null <<REPO
 [google-cloud-cli]
 name=Google Cloud CLI
-baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el9-x86_64
+baseurl=https://packages.cloud.google.com/yum/repos/cloud-sdk-el9-${ARCH}
 enabled=1
 gpgcheck=1
 repo_gpgcheck=0
 gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
 REPO
-    sudo dnf install -y google-cloud-cli
+    run_sudo dnf install -y google-cloud-cli
   else
     fail 'Unsupported package manager. Install gcloud manually: https://cloud.google.com/sdk/docs/install'
   fi
@@ -129,43 +201,58 @@ ok 'gcloud CLI ready'
 
 step '4/6  Gemini CLI'
 
-if has gemini || npm list -g @google/gemini-cli >/dev/null 2>&1; then
+gemini_installed=0
+if has gemini; then
+  gemini_installed=1
+elif npm list -g @google/gemini-cli >/dev/null 2>&1; then
+  gemini_installed=1
+fi
+
+if [ "$gemini_installed" = "1" ]; then
   skip 'gemini'
 else
   echo '   Installing Gemini CLI globally...'
-  npm install -g @google/gemini-cli
+  npm install -g @google/gemini-cli || fail 'Failed to install Gemini CLI via npm.'
 fi
+
+has gemini || fail 'gemini is not on PATH. Check that npm global bin is in your PATH.'
 ok 'gemini CLI ready'
 
 # ---------- 5. Authenticate ---------------------------------------------------
 
 step '5/6  Google Cloud authentication'
 
-SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly,\
-https://www.googleapis.com/auth/admin.directory.orgunit.readonly,\
-https://www.googleapis.com/auth/admin.reports.audit.readonly,\
-https://www.googleapis.com/auth/chrome.management.policy,\
-https://www.googleapis.com/auth/chrome.management.profiles.readonly,\
-https://www.googleapis.com/auth/chrome.management.reports.readonly,\
-https://www.googleapis.com/auth/cloud-identity.policies,\
-https://www.googleapis.com/auth/cloud-platform"
+SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly"
+SCOPES+=",https://www.googleapis.com/auth/admin.directory.orgunit.readonly"
+SCOPES+=",https://www.googleapis.com/auth/admin.reports.audit.readonly"
+SCOPES+=",https://www.googleapis.com/auth/chrome.management.policy"
+SCOPES+=",https://www.googleapis.com/auth/chrome.management.profiles.readonly"
+SCOPES+=",https://www.googleapis.com/auth/chrome.management.reports.readonly"
+SCOPES+=",https://www.googleapis.com/auth/cloud-identity.policies"
+SCOPES+=",https://www.googleapis.com/auth/cloud-platform"
 
 ADC_PATH="${HOME}/.config/gcloud/application_default_credentials.json"
 
 do_auth() {
   echo '   A browser window will open for Google sign-in...'
-  gcloud auth application-default login --scopes="$SCOPES"
+  gcloud auth application-default login --scopes="$SCOPES" \
+    || fail 'Authentication failed or was cancelled. Re-run to try again.'
   ok 'Authenticated with required scopes'
 }
 
 if [ -f "$ADC_PATH" ]; then
-  warn 'ADC credentials file already exists.'
-  printf '   Re-authenticate? (y/N) '
-  read -r response
-  if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
-    do_auth
+  if [ "$NONINTERACTIVE" = "1" ]; then
+    skip 'authentication (non-interactive mode; re-run interactively to re-authenticate)'
   else
-    skip 'authentication'
+    warn 'ADC credentials file already exists.'
+    printf '   Re-authenticate? (y/N) '
+    response=""
+    read -r response || response="N"
+    if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
+      do_auth
+    else
+      skip 'authentication'
+    fi
   fi
 else
   do_auth
@@ -176,12 +263,13 @@ fi
 step '6/6  Install cepbot Gemini extension'
 
 echo '   Registering extension...'
-gemini extensions install https://github.com/timfee/cepbot
+gemini extensions install https://github.com/timfee/cepbot \
+  || fail 'Failed to install the cepbot extension.'
 ok 'cepbot extension installed'
 
 # ---------- done --------------------------------------------------------------
 
 echo ''
-printf '  \033[32mSetup complete!\033[0m\n'
+printf "  ${GREEN}Setup complete!${RESET}\n"
 echo '  Run "gemini" to start using the Chrome Enterprise Premium Bot.'
 echo ''

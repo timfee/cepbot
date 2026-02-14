@@ -259,7 +259,7 @@ function Invoke-CepbotSetup {
         'https://www.googleapis.com/auth/cloud-platform'
     ) -join ','
 
-    $adcPath = Join-Path $env:APPDATA 'gcloud' 'application_default_credentials.json'
+    $adcPath = Join-Path (Join-Path $env:APPDATA 'gcloud') 'application_default_credentials.json'
 
     $shouldAuth = $true
     if (Test-Path $adcPath) {

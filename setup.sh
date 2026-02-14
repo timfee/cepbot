@@ -10,8 +10,15 @@
 #
 # Or clone the repo first and run locally:
 #   chmod +x setup.sh && ./setup.sh
+#
+# The entire script is wrapped in main() so that bash parses the full function
+# body before executing anything. This is required for curl|bash delivery —
+# without it, `exec < /dev/tty` would redirect bash's script source away from
+# the pipe mid-read. Rustup, Homebrew, and Bun all use this same pattern.
 
 set -euo pipefail
+
+main() {
 
 # ---------- shell check -------------------------------------------------------
 
@@ -23,14 +30,14 @@ fi
 # ---------- stdin / TTY -------------------------------------------------------
 #
 # When piped via curl|bash, stdin is the script itself, not the user's keyboard.
-# Reconnect stdin to the real terminal so interactive prompts work, or fall back
-# to non-interactive mode if no terminal is available.
+# Reconnect stdin to the real terminal so interactive prompts (like the
+# re-authenticate prompt) work. Fall back to non-interactive mode if there is
+# no controlling terminal.
 
 NONINTERACTIVE="${NONINTERACTIVE:-0}"
 
 if [ ! -t 0 ]; then
-  # Test if /dev/tty is actually usable before redirecting stdin
-  if [ -r /dev/tty ] && (echo < /dev/tty) 2>/dev/null; then
+  if (: < /dev/tty) 2>/dev/null; then
     exec < /dev/tty
   else
     NONINTERACTIVE=1
@@ -67,9 +74,11 @@ fail()  { printf "   ${RED}ERROR: %s${RESET}\n" "$1" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
 USED_SUDO=0
+TMPFILES=()
 run_sudo() { USED_SUDO=1; sudo "$@"; }
 
 cleanup() {
+  for f in "${TMPFILES[@]}"; do rm -f "$f"; done
   if [ "$USED_SUDO" = "1" ] && has sudo; then
     sudo -k 2>/dev/null || true
   fi
@@ -83,9 +92,7 @@ echo '  Chrome Enterprise Premium Bot — Setup'
 echo '  ======================================'
 echo ''
 
-for cmd in curl; do
-  has "$cmd" || fail "'$cmd' is required but not found. Please install it first."
-done
+has curl || fail "'curl' is required but not found. Please install it first."
 
 if [ "$OS" = "Linux" ]; then
   has apt-get || has dnf || fail \
@@ -129,6 +136,7 @@ install_node() {
   elif has apt-get; then
     local setup_script
     setup_script="$(mktemp)"
+    TMPFILES+=("$setup_script")
     curl -fsSL https://deb.nodesource.com/setup_22.x -o "$setup_script"
     run_sudo bash "$setup_script"
     rm -f "$setup_script"
@@ -136,6 +144,7 @@ install_node() {
   elif has dnf; then
     local setup_script
     setup_script="$(mktemp)"
+    TMPFILES+=("$setup_script")
     curl -fsSL https://rpm.nodesource.com/setup_22.x -o "$setup_script"
     run_sudo bash "$setup_script"
     rm -f "$setup_script"
@@ -177,7 +186,9 @@ else
       | run_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
       | run_sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list > /dev/null
-    run_sudo apt-get update && run_sudo apt-get install -y google-cloud-cli
+    run_sudo apt-get update \
+      || fail 'apt-get update failed after adding the Google Cloud repository.'
+    run_sudo apt-get install -y google-cloud-cli
   elif has dnf; then
     run_sudo tee /etc/yum.repos.d/google-cloud-sdk.repo > /dev/null <<REPO
 [google-cloud-cli]
@@ -273,3 +284,7 @@ echo ''
 printf "  ${GREEN}Setup complete!${RESET}\n"
 echo '  Run "gemini" to start using the Chrome Enterprise Premium Bot.'
 echo ''
+
+} # end main
+
+main "$@"

@@ -219,7 +219,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Gemini CLI globally...'
-        npm install -g @google/gemini-cli
+        npm install -g @google/gemini-cli 2>&1
         if (-not (Assert-ExitCode 'Gemini CLI install')) { return }
     }
 
@@ -265,7 +265,7 @@ function Invoke-CepbotSetup {
     }
 
     if ($shouldAuth) {
-        gcloud auth application-default login --scopes=$scopes
+        gcloud auth application-default login --scopes=$scopes 2>&1
         if (-not (Assert-ExitCode 'Authentication')) {
             Write-Host '   Authentication was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
             return
@@ -278,7 +278,7 @@ function Invoke-CepbotSetup {
     Write-Step '5/5  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
-    gemini extensions install https://github.com/timfee/cepbot
+    gemini extensions install https://github.com/timfee/cepbot 2>&1
     if (-not (Assert-ExitCode 'Extension install')) { return }
     Write-Ok 'cepbot extension installed'
 

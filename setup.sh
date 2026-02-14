@@ -103,6 +103,7 @@ echo '  ======================================'
 echo ''
 
 has curl || fail "'curl' is required but not found. Please install it first."
+has git  || fail "'git' is required but not found. Please install it first (e.g. xcode-select --install on macOS, or apt-get install git on Linux)."
 
 if [ "$OS" = "Linux" ]; then
   has apt-get || has dnf || fail \

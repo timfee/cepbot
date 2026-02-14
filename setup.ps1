@@ -4,7 +4,7 @@
     Sets up a Windows machine for Chrome Enterprise Premium Bot (cepbot).
 
 .DESCRIPTION
-    Installs Node.js, Google Cloud CLI, and Gemini CLI, then authenticates
+    Installs Git, Node.js, Google Cloud CLI, and Gemini CLI, then authenticates
     with the required OAuth scopes and installs the cepbot Gemini extension.
 
     Skips any tool that is already installed and on PATH.
@@ -139,9 +139,32 @@ function Invoke-CepbotSetup {
         return
     }
 
-    # ------ 1. Node.js -------------------------------------------------------
+    # ------ 1. Git -----------------------------------------------------------
 
-    Write-Step '1/6  Node.js (>= 20)'
+    Write-Step '1/7  Git'
+
+    if (Test-Command 'git') {
+        $gitVersion = Invoke-Native { git --version } | Out-String
+        Write-Skip ($gitVersion.Trim())
+    }
+    else {
+        Write-Host '   Installing Git...'
+        Write-UacWarning
+        Invoke-Native { winget install --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements }
+        if (-not (Assert-ExitCode 'Git install')) { return }
+        Update-SessionPath
+    }
+
+    if (-not (Test-Command 'git')) {
+        Write-Fail 'git is still not on PATH after install.'
+        Write-Host '   Close this terminal, open a new one, and re-run the script.' -ForegroundColor Yellow
+        return
+    }
+    Write-Ok 'git ready'
+
+    # ------ 2. Node.js -------------------------------------------------------
+
+    Write-Step '2/7  Node.js (>= 20)'
 
     if (Test-Command 'node') {
         $nodeVersion = (node --version) -replace '^v', ''
@@ -193,9 +216,9 @@ function Invoke-CepbotSetup {
         New-Item -ItemType Directory -Path $npmGlobalDir -Force | Out-Null
     }
 
-    # ------ 2. Google Cloud CLI -----------------------------------------------
+    # ------ 3. Google Cloud CLI -----------------------------------------------
 
-    Write-Step '2/6  Google Cloud CLI'
+    Write-Step '3/7  Google Cloud CLI'
 
     if (Test-Command 'gcloud') {
         $gcloudVer = Invoke-Native { gcloud version } | Select-Object -First 1
@@ -215,9 +238,9 @@ function Invoke-CepbotSetup {
     }
     Write-Ok 'gcloud CLI ready'
 
-    # ------ 3. Gemini CLI ----------------------------------------------------
+    # ------ 4. Gemini CLI ----------------------------------------------------
 
-    Write-Step '3/6  Gemini CLI'
+    Write-Step '4/7  Gemini CLI'
 
     $geminiInstalled = Test-Command 'gemini'
     if (-not $geminiInstalled -and (Test-Command 'npm')) {
@@ -245,9 +268,9 @@ function Invoke-CepbotSetup {
     }
     Write-Ok 'gemini CLI ready'
 
-    # ------ 4. Authenticate ---------------------------------------------------
+    # ------ 5. Authenticate ---------------------------------------------------
 
-    Write-Step '4/6  Google Cloud authentication'
+    Write-Step '5/7  Google Cloud authentication'
 
     $scopes = @(
         'https://www.googleapis.com/auth/admin.directory.customer.readonly'
@@ -309,9 +332,9 @@ function Invoke-CepbotSetup {
         Write-Warn 'No GCP project configured. The agent will attempt to create one on first use.'
     }
 
-    # ------ 5. Gemini CLI configuration ----------------------------------------
+    # ------ 6. Gemini CLI configuration ----------------------------------------
 
-    Write-Step '5/6  Gemini CLI configuration'
+    Write-Step '6/7  Gemini CLI configuration'
 
     $geminiDir = Join-Path $env:USERPROFILE '.gemini'
     $geminiSettings = Join-Path $geminiDir 'settings.json'
@@ -353,9 +376,9 @@ function Invoke-CepbotSetup {
         Write-Ok 'Configured Gemini CLI to use Google login'
     }
 
-    # ------ 6. Install extension ----------------------------------------------
+    # ------ 7. Install extension ----------------------------------------------
 
-    Write-Step '6/6  Install cepbot Gemini extension'
+    Write-Step '7/7  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
     Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }

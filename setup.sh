@@ -113,7 +113,7 @@ fi
 # ---------- 1. Homebrew (macOS only) / package manager check ------------------
 
 if [ "$OS" = "Darwin" ]; then
-  step '1/7  Homebrew'
+  step '1/8  Homebrew'
 
   if has brew; then
     skip "brew $(brew --version 2>&1 | sed -n '1p')"
@@ -127,13 +127,13 @@ if [ "$OS" = "Darwin" ]; then
     fi
   fi
 else
-  step '1/7  Package manager'
+  step '1/8  Package manager'
   ok "Using system package manager ($OS)"
 fi
 
 # ---------- 2. Node.js -------------------------------------------------------
 
-step '2/7  Node.js (>= 20)'
+step '2/8  Node.js (>= 20)'
 
 install_node() {
   if [ "$OS" = "Darwin" ]; then
@@ -192,11 +192,12 @@ ok "node v${node_version}"
 
 # ---------- 3. Google Cloud CLI -----------------------------------------------
 
-step '3/7  Google Cloud CLI'
+step '3/8  Google Cloud CLI'
 
 if has gcloud; then
   skip "gcloud $(gcloud version 2>&1 | sed -n '1p')"
 else
+  echo '   Installing Google Cloud CLI (this may take a few minutes)...'
   if [ "$OS" = "Darwin" ]; then
     brew install --cask google-cloud-sdk
     # The cask doesn't symlink gcloud into bin; source its PATH script
@@ -243,7 +244,7 @@ ok 'gcloud CLI ready'
 
 # ---------- 4. Gemini CLI ----------------------------------------------------
 
-step '4/7  Gemini CLI'
+step '4/8  Gemini CLI'
 
 gemini_installed=0
 if has gemini; then
@@ -264,7 +265,7 @@ ok 'gemini CLI ready'
 
 # ---------- 5. Authenticate ---------------------------------------------------
 
-step '5/7  Google Cloud authentication'
+step '5/8  Google Cloud authentication'
 
 SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly"
 SCOPES+=",https://www.googleapis.com/auth/admin.directory.orgunit.readonly"
@@ -302,6 +303,10 @@ else
   do_auth
 fi
 
+# ---------- 6. Quota project --------------------------------------------------
+
+step '6/8  GCP quota project'
+
 # Set quota project to avoid "quota exceeded" errors on API calls.
 # Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts.
 project_id=""
@@ -321,9 +326,9 @@ else
   warn 'No GCP project configured. The agent will attempt to create one on first use.'
 fi
 
-# ---------- 6. Gemini CLI configuration ----------------------------------------
+# ---------- 7. Gemini CLI configuration ----------------------------------------
 
-step '6/7  Gemini CLI configuration'
+step '7/8  Gemini CLI configuration'
 
 GEMINI_DIR="${HOME}/.gemini"
 GEMINI_SETTINGS="${GEMINI_DIR}/settings.json"
@@ -348,7 +353,7 @@ fi
 
 # ---------- 7. Install extension ----------------------------------------------
 
-step '7/7  Install cepbot Gemini extension'
+step '8/8  Install cepbot Gemini extension'
 
 echo '   Registering extension...'
 # Capture exit code without triggering set -e

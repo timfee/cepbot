@@ -108,14 +108,14 @@ function Invoke-CepbotSetup {
         }
         else {
             Write-Warn "Found node $nodeVersion - upgrading to latest LTS..."
-            winget install --id OpenJS.NodeJS.LTS --source winget --silent --accept-source-agreements --accept-package-agreements
+            winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
             if (-not (Assert-ExitCode 'Node.js install')) { return }
             Update-SessionPath
         }
     }
     else {
         Write-Host '   Installing Node.js LTS...'
-        winget install --id OpenJS.NodeJS.LTS --source winget --silent --accept-source-agreements --accept-package-agreements
+        winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements
         if (-not (Assert-ExitCode 'Node.js install')) { return }
         Update-SessionPath
     }
@@ -149,7 +149,7 @@ function Invoke-CepbotSetup {
     }
     else {
         Write-Host '   Installing Google Cloud CLI...'
-        winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements
+        winget install --id Google.CloudSDK --source winget --accept-source-agreements --accept-package-agreements
         if (-not (Assert-ExitCode 'Google Cloud CLI install')) { return }
         Update-SessionPath
     }

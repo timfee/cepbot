@@ -17,14 +17,23 @@ import { getAuthToken, validateAndGetOrgUnitId } from "./schemas";
 export class CustomerIdCache {
   private value: string | null = null;
 
+  /**
+   * Clears the cached customer ID, forcing a fresh lookup on the next tool call.
+   */
   clear(): void {
     this.value = null;
   }
 
+  /**
+   * Returns the cached customer ID, or null if not yet resolved.
+   */
   get(): string | null {
     return this.value;
   }
 
+  /**
+   * Stores a resolved customer ID for reuse across tool calls.
+   */
   set(id: string): void {
     this.value = id;
   }

@@ -38,19 +38,32 @@ type ServerState =
 
 let state: ServerState = { status: "booting" };
 
+/**
+ * Returns the current server health state for use in tool guards.
+ */
 export function getServerState(): ServerState {
   return state;
 }
 
+/**
+ * Transitions the server to a healthy state after a successful bootstrap.
+ */
 export function setServerHealthy(projectId: string, region: string): void {
   state = { projectId, region, status: "healthy" };
 }
 
+/**
+ * Transitions the server to degraded mode when bootstrap fails,
+ * storing the error for display in tool responses.
+ */
 export function setServerDegraded(error: BootstrapError): void {
   state = { error, status: "degraded" };
 }
 
-/** @internal */
+/**
+ * Resets the server state to "booting" for test isolation.
+ * @internal
+ */
 export function _resetServerStateForTesting(): void {
   state = { status: "booting" };
 }

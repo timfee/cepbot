@@ -65,7 +65,9 @@ function hasGrpcCode(error: unknown): error is { code: number } {
   );
 }
 
-/** Retries `fn` with exponential backoff on gRPC PERMISSION_DENIED. */
+/**
+ * Retries `fn` with exponential backoff on gRPC PERMISSION_DENIED.
+ */
 export async function callWithRetry<T>(
   fn: () => Promise<T>,
   description: string,
@@ -129,7 +131,6 @@ async function checkAndEnableApi(
     progress
   );
 
-  // Post-enablement verification
   const verifiedState = await callWithRetry(
     async () => getServiceState(projectId, api, accessToken),
     `verifyService ${api}`,

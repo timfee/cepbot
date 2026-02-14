@@ -9,6 +9,9 @@ import { SCOPES } from "./constants";
 
 const ALL_SCOPES = Object.values(SCOPES).join(",");
 
+/**
+ * Creates an error when the gcloud CLI is not installed or not on PATH.
+ */
 export function gcloudMissingError(): BootstrapError {
   return {
     agentAction: [
@@ -22,6 +25,10 @@ export function gcloudMissingError(): BootstrapError {
   };
 }
 
+/**
+ * Creates an error when Application Default Credentials are invalid
+ * or not configured, including re-authentication instructions.
+ */
 export function adcCredentialsError(reason: string): BootstrapError {
   return {
     agentAction: [
@@ -41,6 +48,10 @@ export function adcCredentialsError(reason: string): BootstrapError {
   };
 }
 
+/**
+ * Creates an error when the access token is missing required OAuth scopes,
+ * with diagnostics showing granted vs. required scopes.
+ */
 export function scopeMissingError(
   missing: string[],
   granted: string[]
@@ -68,6 +79,9 @@ export function scopeMissingError(
   };
 }
 
+/**
+ * Creates an error when a GCP quota project cannot be resolved or created.
+ */
 export function quotaProjectError(reason: string): BootstrapError {
   return {
     agentAction: [
@@ -81,6 +95,10 @@ export function quotaProjectError(reason: string): BootstrapError {
   };
 }
 
+/**
+ * Creates an error when required Google APIs could not be enabled,
+ * with a suggested gcloud command for manual enablement.
+ */
 export function apiEnablementError(
   failedApis: string[],
   projectId: string

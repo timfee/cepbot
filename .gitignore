@@ -1,0 +1,10 @@
+#
+# Do not ignore the dist folder
+#
+# dist/ -- We use esbuild to bundle the server, 
+#       -- so we don't need to ignore the dist folder.
+#
+build/
+.DS_Store
+coverage/
+node_modules/

@@ -1,0 +1,44 @@
+{
+  "name": "cepbot",
+  "version": "0.1.0",
+  "description": "A CEP self-hosted MCP server (Unofficial)",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Tim Feeley",
+    "email": "feel@google.com"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "dev": "npm run build && npx @modelcontextprotocol/inspector node dist/index.js",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
+    "watch": "tsc --watch --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --testTimeout 30000 --dir e2e --exclude 'node_modules/**'",
+    "check": "ultracite check --type-aware --type-check",
+    "fix": "ultracite fix --type-aware --type-check"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "google-auth-library": "^10.5.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/json-schema": "^7.0.15",
+    "@types/node": "^25.2.3",
+    "@vitest/coverage-v8": "^4.0.18",
+    "esbuild": "^0.27.3",
+    "oxfmt": "^0.32.0",
+    "oxlint": "^1.47.0",
+    "oxlint-tsgolint": "^0.12.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "ultracite": "^7.2.0",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

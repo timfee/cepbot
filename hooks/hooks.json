@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "create_dlp_rule",
+        "hooks": [
+          {
+            "name": "validate-dlp-action",
+            "type": "command",
+            "command": "node ${extensionPath}/hooks/validate-dlp-action.mjs",
+            "timeout": 3000,
+            "description": "Blocks DLP rule creation with BLOCK action before the API call is made"
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "create_dlp_rule",
+        "hooks": [
+          {
+            "name": "dlp-creation-followup",
+            "type": "command",
+            "command": "node ${extensionPath}/hooks/dlp-creation-followup.mjs",
+            "timeout": 3000,
+            "description": "Guides the validate-then-create workflow after DLP rule operations"
+          }
+        ]
+      }
+    ]
+  }
+}

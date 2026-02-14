@@ -3,6 +3,7 @@
   "description": "Manage Chrome Enterprise Premium: browser policies, Data Loss Prevention rules, activity monitoring, and organizational unit configuration.",
   "version": "0.4.0",
   "contextFileName": "GEMINI.md",
+  "hooksFileName": "hooks/hooks.json",
   "mcpServers": {
     "chrome-enterprise-premium": {
       "command": "node",

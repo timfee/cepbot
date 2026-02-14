@@ -33,7 +33,7 @@ resolved at build time. The package version is injected via `__VERSION__`.
 ## Conventions
 
 - ES modules (`"type": "module"`)
-- Node.js >= 18 target
+- Node.js >= 20 target
 - Path aliases: `@lib/*`, `@tools/*`, `@prompts/*` (defined in tsconfig.json)
 - 100% code coverage threshold for unit tests
 - Ultracite (Oxlint + Oxfmt) for linting and formatting

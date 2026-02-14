@@ -27,6 +27,11 @@ function Invoke-CepbotSetup {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # Remember where the user started so we can restore it when we're done.
+    # Tool installers (winget, gcloud, etc.) can silently change $PWD —
+    # without this the user may end up in C:\Windows\System32.
+    $originalDir = Get-Location
+
     # When invoked via "irm … | iex", execution policy is bypassed for the
     # script text itself, but child .ps1 shims on disk (npm.ps1, gemini.ps1,
     # etc.) are still subject to the machine policy and will fail with
@@ -34,6 +39,7 @@ function Invoke-CepbotSetup {
     # not persist after the terminal is closed and does not require admin.
     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
+    try {
     # ------ helpers ----------------------------------------------------------
 
     function Write-Step {
@@ -141,7 +147,7 @@ function Invoke-CepbotSetup {
 
     # ------ 1. Git -----------------------------------------------------------
 
-    Write-Step '1/7  Git'
+    Write-Step '1/8  Git'
 
     if (Test-Command 'git') {
         $gitVersion = Invoke-Native { git --version } | Out-String
@@ -162,9 +168,9 @@ function Invoke-CepbotSetup {
     }
     Write-Ok 'git ready'
 
-    # ------ 2. Node.js -------------------------------------------------------
+    # ------ 2. Node.js ------------------------------------------------------
 
-    Write-Step '2/7  Node.js (>= 20)'
+    Write-Step '2/8  Node.js (>= 20)'
 
     if (Test-Command 'node') {
         $nodeVersion = (node --version) -replace '^v', ''
@@ -216,16 +222,16 @@ function Invoke-CepbotSetup {
         New-Item -ItemType Directory -Path $npmGlobalDir -Force | Out-Null
     }
 
-    # ------ 3. Google Cloud CLI -----------------------------------------------
+    # ------ 3. Google Cloud CLI ----------------------------------------------
 
-    Write-Step '3/7  Google Cloud CLI'
+    Write-Step '3/8  Google Cloud CLI'
 
     if (Test-Command 'gcloud') {
         $gcloudVer = Invoke-Native { gcloud version } | Select-Object -First 1
         Write-Skip "gcloud $gcloudVer"
     }
     else {
-        Write-Host '   Installing Google Cloud CLI...'
+        Write-Host '   Installing Google Cloud CLI (this may take a few minutes)...'
         Invoke-Native { winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Google Cloud CLI install')) { return }
         Update-SessionPath
@@ -238,9 +244,9 @@ function Invoke-CepbotSetup {
     }
     Write-Ok 'gcloud CLI ready'
 
-    # ------ 4. Gemini CLI ----------------------------------------------------
+    # ------ 4. Gemini CLI ---------------------------------------------------
 
-    Write-Step '4/7  Gemini CLI'
+    Write-Step '4/8  Gemini CLI'
 
     $geminiInstalled = Test-Command 'gemini'
     if (-not $geminiInstalled -and (Test-Command 'npm')) {
@@ -268,9 +274,9 @@ function Invoke-CepbotSetup {
     }
     Write-Ok 'gemini CLI ready'
 
-    # ------ 5. Authenticate ---------------------------------------------------
+    # ------ 5. Authenticate --------------------------------------------------
 
-    Write-Step '5/7  Google Cloud authentication'
+    Write-Step '5/8  Google Cloud authentication'
 
     $scopes = @(
         'https://www.googleapis.com/auth/admin.directory.customer.readonly'
@@ -307,6 +313,10 @@ function Invoke-CepbotSetup {
         Write-Ok 'Authenticated with required scopes'
     }
 
+    # ------ 6. Quota project --------------------------------------------------
+
+    Write-Step '6/8  GCP quota project'
+
     # Set quota project to avoid "quota exceeded" errors on API calls.
     # Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts.
     $projectId = $null
@@ -332,9 +342,9 @@ function Invoke-CepbotSetup {
         Write-Warn 'No GCP project configured. The agent will attempt to create one on first use.'
     }
 
-    # ------ 6. Gemini CLI configuration ----------------------------------------
+    # ------ 7. Gemini CLI configuration ----------------------------------------
 
-    Write-Step '6/7  Gemini CLI configuration'
+    Write-Step '7/8  Gemini CLI configuration'
 
     $geminiDir = Join-Path $env:USERPROFILE '.gemini'
     $geminiSettings = Join-Path $geminiDir 'settings.json'
@@ -376,9 +386,9 @@ function Invoke-CepbotSetup {
         Write-Ok 'Configured Gemini CLI to use Google login'
     }
 
-    # ------ 7. Install extension ----------------------------------------------
+    # ------ 8. Install extension ----------------------------------------------
 
-    Write-Step '7/7  Install cepbot Gemini extension'
+    Write-Step '8/8  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
     Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
@@ -423,6 +433,11 @@ function Invoke-CepbotSetup {
     Write-Host '  Setup complete!' -ForegroundColor Green
     Write-Host '  Run "gemini" to start using the Chrome Enterprise Premium Bot.' -ForegroundColor White
     Write-Host ''
+
+    } # end try
+    finally {
+        Set-Location -Path $originalDir
+    }
 }
 
 # Run the setup, then clean up the function from the caller's scope.

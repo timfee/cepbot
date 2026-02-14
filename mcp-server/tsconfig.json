@@ -14,7 +14,8 @@
     "paths": {
       "@lib/*": ["./src/lib/*"],
       "@modelcontextprotocol/sdk/*": [
-        "./node_modules/@modelcontextprotocol/sdk/dist/esm/*"
+        "./node_modules/@modelcontextprotocol/sdk/dist/esm/*",
+        "../node_modules/@modelcontextprotocol/sdk/dist/esm/*"
       ],
       "@prompts/*": ["./src/prompts/*"],
       "@tools/*": ["./src/tools/*"]

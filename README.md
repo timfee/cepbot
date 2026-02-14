@@ -67,11 +67,15 @@ cepbot/
 ## Development Setup
 
 ```bash
-cd mcp-server
 npm install
 ```
 
+This is a workspace monorepo — `npm install` at the root installs all
+dependencies. All scripts delegate to the `mcp-server` workspace automatically.
+
 ## Scripts
+
+All commands can be run from the repository root:
 
 | Command | Description |
 |---|---|
@@ -84,6 +88,13 @@ npm install
 | `npm test` | Run unit tests with coverage |
 | `npm run test:watch` | Run unit tests in watch mode |
 | `npm run test:e2e` | Run end-to-end tests |
+
+## Build Output
+
+The `mcp-server/dist/` directory is committed to the repository. The Gemini
+extension manifest (`gemini-extension.json`) references `dist/index.js` directly,
+so consumers get a working server without needing to build from source. CI
+automatically rebuilds and commits the bundle on every push to `main`.
 
 ## Available Tools
 

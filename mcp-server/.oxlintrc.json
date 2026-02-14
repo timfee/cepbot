@@ -90,6 +90,8 @@
     "oxc/no-rest-spread-properties": "off",
     "oxc/no-optional-chaining": "off",
 
+    "no-void": ["error", { "allowAsStatement": true }],
+
     "promise/catch-or-return": "off",
     "promise/always-return": "off",
 
@@ -98,5 +100,14 @@
 
     "import/no-nodejs-modules": "off"
   },
-  "ignorePatterns": ["coverage/**", "dist/**", "node_modules/**"]
+  "ignorePatterns": ["coverage/**", "dist/**", "node_modules/**"],
+  "overrides": [
+    {
+      "files": ["tests/**/*.ts", "e2e/**/*.ts"],
+      "rules": {
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/unbound-method": "off"
+      }
+    }
+  ]
 }

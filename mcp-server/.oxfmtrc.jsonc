@@ -20,5 +20,5 @@
     "newlinesBetween": true,
     "order": "asc",
   },
-  "ignorePatterns": ["dist/**"],
+  "ignorePatterns": ["coverage/**", "dist/**"],
 }

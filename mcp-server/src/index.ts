@@ -45,7 +45,7 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  server.sendLoggingMessage({
+  void server.sendLoggingMessage({
     data: result.ok
       ? "cepbot MCP server running on stdio"
       : "cepbot MCP server running in DEGRADED mode on stdio",

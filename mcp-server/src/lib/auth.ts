@@ -49,11 +49,6 @@ export async function verifyADCCredentials(): Promise<ADCResult> {
 
 const TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 
-interface TokenInfoResponse {
-  error_description?: string;
-  scope?: string;
-}
-
 /**
  * Result of verifying token scopes via Google's tokeninfo endpoint.
  */
@@ -85,10 +80,14 @@ export async function verifyTokenScopes(
       throw new Error(`tokeninfo returned ${String(response.status)}: ${body}`);
     }
 
-    const data = (await response.json()) as TokenInfoResponse;
-    const granted = (data.scope ?? "").split(" ").filter(Boolean);
+    const json: unknown = await response.json();
+    const scope =
+      typeof json === "object" && json !== null && "scope" in json
+        ? String(json.scope)
+        : "";
+    const granted = scope.split(" ").filter(Boolean);
     const grantedSet = new Set(granted);
-    const missing = required.filter((scope) => !grantedSet.has(scope));
+    const missing = required.filter((s) => !grantedSet.has(s));
 
     return { granted, missing, ok: missing.length === 0, source: "tokeninfo" };
   } catch {

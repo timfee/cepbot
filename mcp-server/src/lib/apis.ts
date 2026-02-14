@@ -48,7 +48,7 @@ export function createMcpLogger(
   logger: string
 ): ProgressCallback {
   return (msg) => {
-    server.sendLoggingMessage({
+    void server.sendLoggingMessage({
       data: msg.data,
       level: SYSLOG_LEVEL[msg.level],
       logger,

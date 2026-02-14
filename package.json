@@ -1,0 +1,16 @@
+{
+  "name": "cepbot-root",
+  "private": true,
+  "scripts": {
+    "build": "npm run build -w cepbot",
+    "check": "npm run check -w cepbot",
+    "dev": "npm run dev -w cepbot",
+    "fix": "npm run fix -w cepbot",
+    "start": "npm run start -w cepbot",
+    "test": "npm run test -w cepbot",
+    "test:e2e": "npm run test:e2e -w cepbot",
+    "test:watch": "npm run test:watch -w cepbot",
+    "typecheck": "npm run typecheck -w cepbot"
+  },
+  "workspaces": ["mcp-server"]
+}

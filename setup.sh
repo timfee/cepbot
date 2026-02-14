@@ -345,27 +345,21 @@ SETTINGS
   ok 'Configured Gemini CLI to use Google login'
 fi
 
-# Gemini CLI needs GOOGLE_CLOUD_PROJECT for Google Workspace accounts.
-# ~/.gemini/.env is the officially recommended location.
-GEMINI_ENV="${GEMINI_DIR}/.env"
-if [ -n "$project_id" ]; then
-  if [ -f "$GEMINI_ENV" ] && grep -q '^GOOGLE_CLOUD_PROJECT=' "$GEMINI_ENV" 2>/dev/null; then
-    skip "GOOGLE_CLOUD_PROJECT (in ~/.gemini/.env)"
-  else
-    mkdir -p "$GEMINI_DIR"
-    echo "GOOGLE_CLOUD_PROJECT=${project_id}" >> "$GEMINI_ENV"
-    ok "GOOGLE_CLOUD_PROJECT=$project_id"
-  fi
-fi
-
 # ---------- 7. Install extension ----------------------------------------------
 
 step '7/7  Install cepbot Gemini extension'
 
 echo '   Registering extension...'
-if ! gemini extensions install https://github.com/timfee/cepbot 2>&1; then
-  # Extension install likely failed because Gemini CLI needs first-time
-  # browser authentication.  Launch gemini so the user can sign in.
+# Capture exit code without triggering set -e
+install_rc=0
+gemini extensions install https://github.com/timfee/cepbot 2>&1 || install_rc=$?
+
+if [ "$install_rc" -eq 0 ]; then
+  : # Success on first try
+elif [ "$install_rc" -eq 41 ]; then
+  # Exit code 41 = FatalAuthenticationError.  The CLI validated its global
+  # auth state before processing the subcommand.  Launch gemini interactively
+  # so the user can complete the browser sign-in, then retry.
   warn 'Extension install needs Gemini CLI authentication first.'
   echo ''
   printf "   ${YELLOW}Launching Gemini CLI for first-time sign-in.${RESET}\n"
@@ -377,6 +371,8 @@ if ! gemini extensions install https://github.com/timfee/cepbot 2>&1; then
   echo '   Retrying extension install...'
   gemini extensions install https://github.com/timfee/cepbot \
     || fail 'Failed to install the cepbot extension.'
+else
+  fail "Extension install failed (exit code $install_rc). Check your network connection and try again."
 fi
 ok 'cepbot extension installed'
 

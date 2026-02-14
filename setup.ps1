@@ -337,30 +337,29 @@ function Invoke-CepbotSetup {
         Write-Ok 'Configured Gemini CLI to use Google login'
     }
 
-    # Gemini CLI needs GOOGLE_CLOUD_PROJECT for Google Workspace accounts
-    if ($projectId -and -not $env:GOOGLE_CLOUD_PROJECT) {
-        $env:GOOGLE_CLOUD_PROJECT = $projectId
-        [Environment]::SetEnvironmentVariable('GOOGLE_CLOUD_PROJECT', $projectId, 'User')
-        Write-Ok "GOOGLE_CLOUD_PROJECT=$projectId"
-    }
-
     # ------ 6. Install extension ----------------------------------------------
 
     Write-Step '6/6  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
     Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
-    if ($LASTEXITCODE -ne 0) {
-        # Extension install likely failed because Gemini CLI needs first-time
-        # browser authentication.  Launch gemini so the user can sign in.
+    $installExitCode = $LASTEXITCODE
+
+    if ($installExitCode -eq 0) {
+        # Success on first try
+    }
+    elseif ($installExitCode -eq 41) {
+        # Exit code 41 = FatalAuthenticationError.  The CLI validated its
+        # global auth state before processing the subcommand.  Launch gemini
+        # interactively so the user can complete browser sign-in, then retry.
         Write-Warn 'Extension install needs Gemini CLI authentication first.'
         Write-Host ''
         Write-Host '   Launching Gemini CLI for first-time sign-in.' -ForegroundColor Yellow
         Write-Host '   A browser window will open — complete the sign-in there.' -ForegroundColor Yellow
         Write-Host '   Once authenticated, type /quit to return to setup.' -ForegroundColor Yellow
         Write-Host ''
-        # Launch gemini for interactive auth. Avoid Invoke-Native here —
-        # its 2>&1 redirect can interfere with interactive terminal programs.
+        # Avoid Invoke-Native here — its 2>&1 redirect can interfere with
+        # interactive terminal programs.
         try {
             $ErrorActionPreference = 'SilentlyContinue'
             & gemini
@@ -372,6 +371,10 @@ function Invoke-CepbotSetup {
         Write-Host '   Retrying extension install...'
         Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
         if (-not (Assert-ExitCode 'Extension install')) { return }
+    }
+    else {
+        Write-Fail "Extension install failed (exit code $installExitCode). Check your network connection and try again."
+        return
     }
     Write-Ok 'cepbot extension installed'
 

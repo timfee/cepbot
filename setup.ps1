@@ -318,6 +318,16 @@ function Invoke-CepbotSetup {
     $needsGeminiAuth = $true
 
     if (Test-Path $geminiSettings) {
+        # Strip UTF-8 BOM if present — a previous run may have written one via
+        # Set-Content -Encoding UTF8 (PowerShell 5.1), which the Gemini CLI's
+        # JSON parser cannot handle.
+        $rawBytes = [System.IO.File]::ReadAllBytes($geminiSettings)
+        if ($rawBytes.Length -ge 3 -and $rawBytes[0] -eq 0xEF -and $rawBytes[1] -eq 0xBB -and $rawBytes[2] -eq 0xBF) {
+            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            $text = $utf8NoBom.GetString($rawBytes, 3, $rawBytes.Length - 3)
+            [System.IO.File]::WriteAllText($geminiSettings, $text, $utf8NoBom)
+        }
+
         try {
             $authType = (Get-Content $geminiSettings -Raw | ConvertFrom-Json).security.auth.selectedType
             if ($authType) {
@@ -332,8 +342,14 @@ function Invoke-CepbotSetup {
         if (-not (Test-Path $geminiDir)) {
             New-Item -ItemType Directory -Path $geminiDir -Force | Out-Null
         }
-        '{ "security": { "auth": { "selectedType": "oauth-personal" } } }' |
-            Set-Content -Path $geminiSettings -Encoding UTF8
+        # Use .NET directly — PowerShell 5.1's -Encoding UTF8 emits a BOM
+        # which breaks the Gemini CLI JSON parser.
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText(
+            $geminiSettings,
+            '{ "security": { "auth": { "selectedType": "oauth-personal" } } }',
+            $utf8NoBom
+        )
         Write-Ok 'Configured Gemini CLI to use Google login'
     }
 

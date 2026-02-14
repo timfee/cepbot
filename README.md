@@ -1,15 +1,24 @@
 # Chrome Enterprise Premium MCP Server
 
-A Gemini extension for managing Chrome Enterprise Premium: browser policies,
-Data Loss Prevention rules, activity monitoring, and organizational unit
-configuration.
+An unofficial Model Context Protocol (MCP) server for managing Chrome Enterprise
+Premium: browser policies, Data Loss Prevention rules, activity monitoring, and
+organizational unit configuration. Built as a Gemini extension for AI-assisted
+Chrome enterprise security management.
+
+## Install
+
+```bash
+gemini extensions install https://github.com/timfee/cepbot
+```
+
+This registers the extension with [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli).
+After installation, authenticate with the required scopes (see [Authentication](#authentication))
+and start Gemini CLI to begin using the extension.
 
 ## Architecture
 
 ```
 cepbot/
-  AGENTS.md                  Code standards (Ultracite)
-  GEMINI.md                  Gemini CLI system prompt
   gemini-extension.json      Extension manifest
   hooks/                     Gemini extension hooks
     hooks.json
@@ -17,31 +26,35 @@ cepbot/
     dlp-creation-followup.mjs Guides validate-then-create workflow
   mcp-server/
     src/
-      index.ts               Entry point
+      index.ts               Entry point (bootstrap, connect stdio)
       lib/                   Core library
-        constants.ts          Shared configuration
-        auth.ts               ADC verification
-        bootstrap.ts          Server initialization
-        gcp.ts                GCP metadata detection
-        gcloud.ts             gcloud CLI interaction
-        projects.ts           Project creation fallback
-        apis.ts               API enablement with retry
-        clients.ts            Low-level GCP operations
+        constants.ts          API URLs, scopes, retry config, triggers
+        auth.ts               ADC verification and token introspection
+        bootstrap.ts          Server initialization sequence
+        server-state.ts       Health state (healthy / degraded / booting)
+        agent-errors.ts       Structured errors with agent-directive text
+        gcp.ts                GCP metadata server detection
+        gcloud.ts             gcloud CLI interaction and ADC file access
+        projects.ts           Fallback project creation
+        apis.ts               API enablement with exponential backoff
+        clients.ts            Low-level GCP REST operations
         api/                  Google API clients
-          fetch.ts             Authenticated HTTP client
+          fetch.ts             Authenticated HTTP client (ADC + quota headers)
           admin-sdk.ts         Admin SDK (customer, activity, org units)
           chrome-management.ts Chrome Management (versions, profiles)
           chrome-policy.ts     Chrome Policy (connectors)
-          cloud-identity.ts    Cloud Identity (DLP, URL lists)
+          cloud-identity.ts    Cloud Identity (DLP rules, URL lists)
       tools/                 MCP tool definitions
-        register.ts
-        schemas.ts
-        guarded-tool-call.ts
-        definitions/          11 individual tools
+        register.ts           Registers all tools with the server
+        schemas.ts            Shared Zod schemas and utilities
+        guarded-tool-call.ts  Execution wrapper (auth, validation, errors)
+        definitions/          Individual tool implementations
       prompts/               MCP prompt definitions
-        register.ts
-        content.ts
-        definitions/          4 prompts
+        register.ts           Registers all prompts with the server
+        content.ts            Shared prompt content and builder
+        definitions/          Individual prompt implementations
+    tests/                   Unit tests (vitest)
+    e2e/                     End-to-end tests
 ```
 
 ## Prerequisites
@@ -49,72 +62,105 @@ cepbot/
 - Node.js >= 18
 - [gcloud CLI](https://cloud.google.com/sdk/docs/install)
 - Application Default Credentials configured with required scopes
-- [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli) (for extension
-  usage)
+- [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli) (for extension usage)
 
-## Development
+## Development Setup
 
 ```bash
 cd mcp-server
 npm install
-npm run build      # Bundle with esbuild
-npm run typecheck   # Type-check without emitting
-npm run check       # Lint + typecheck (ultracite)
-npm run fix         # Auto-fix lint issues
-npm test            # Run unit tests with coverage
-npm run test:e2e    # Run end-to-end tests
 ```
+
+## Scripts
+
+| Command | Description |
+|---|---|
+| `npm run build` | Bundle with esbuild, make output executable |
+| `npm start` | Run the bundled server (`dist/index.js`) |
+| `npm run dev` | Build and launch with MCP Inspector |
+| `npm run typecheck` | Type-check without emitting files |
+| `npm run check` | Lint and typecheck via Ultracite |
+| `npm run fix` | Auto-fix lint issues via Ultracite |
+| `npm test` | Run unit tests with coverage |
+| `npm run test:watch` | Run unit tests in watch mode |
+| `npm run test:e2e` | Run end-to-end tests |
 
 ## Available Tools
 
 ### Read-Only
 
-| Tool | Purpose |
+| Tool | Description |
 |---|---|
 | `get_customer_id` | Gets the customer ID for the authenticated user |
 | `list_org_units` | Lists all organizational units for a customer |
-| `list_dlp_rules` | Lists DLP rules or detectors |
-| `list_customer_profiles` | Lists all customer browser profiles |
-| `get_connector_policy` | Checks Chrome Enterprise connector configuration |
-| `get_chrome_activity_log` | Gets Chrome browser activity logs |
-| `analyze_chrome_logs_for_risky_activity` | Analyzes activity logs for risky behavior |
-| `count_browser_versions` | Counts Chrome browser versions reported by devices |
+| `list_dlp_rules` | Lists DLP rules or detectors filtered to Chrome triggers |
+| `list_customer_profiles` | Lists enrolled browser profiles |
+| `get_connector_policy` | Checks connector configuration for one or more org units |
+| `get_chrome_activity_log` | Gets Chrome activity logs (defaults to last 10 days) |
+| `analyze_chrome_logs_for_risky_activity` | Fetches activity logs scoped for risk analysis |
+| `count_browser_versions` | Counts Chrome versions reported by managed devices |
 
 ### Mutating
 
-| Tool | Purpose |
+| Tool | Description |
 |---|---|
-| `create_dlp_rule` | Creates a DLP rule for a specific organizational unit |
-| `create_url_list` | Creates a new URL list for Chrome policies |
+| `create_dlp_rule` | Creates a DLP rule with validate-then-create workflow |
+| `create_url_list` | Creates a URL list resource for Chrome policies |
 
 ### Destructive
 
-| Tool | Purpose |
+| Tool | Description |
 |---|---|
-| `delete_dlp_rule` | Permanently deletes a DLP rule |
+| `delete_dlp_rule` | Permanently deletes a DLP rule by policy name |
+
+### Infrastructure
+
+| Tool | Description |
+|---|---|
+| `retry_bootstrap` | Re-runs bootstrap after fixing credentials or setup |
 
 ## Key Workflows
 
+### Authentication
+
+The server authenticates via Application Default Credentials (ADC). On startup
+it verifies gcloud availability, ADC validity, and that the token carries all
+required OAuth scopes. If any check fails, the server enters degraded mode and
+returns agent-directive errors explaining how to fix the issue.
+
+```bash
+gcloud auth application-default login \
+  --scopes=https://www.googleapis.com/auth/admin.directory.customer.readonly,\
+https://www.googleapis.com/auth/admin.directory.orgunit.readonly,\
+https://www.googleapis.com/auth/admin.reports.audit.readonly,\
+https://www.googleapis.com/auth/chrome.management.policy,\
+https://www.googleapis.com/auth/chrome.management.profiles.readonly,\
+https://www.googleapis.com/auth/chrome.management.reports.readonly,\
+https://www.googleapis.com/auth/cloud-identity.policies,\
+https://www.googleapis.com/auth/cloud-platform
+```
+
 ### Bootstrap Sequence
 
-On startup the server verifies gcloud CLI availability, ADC credentials,
-required OAuth scopes, resolves a quota project (creating one if needed),
-enables required Google APIs, and pre-fetches the customer ID.
+On startup the server runs: gcloud check, ADC verification, scope validation,
+quota project resolution (creating one if needed), API enablement with retry,
+and customer ID pre-fetch. If bootstrap fails, the server continues in degraded
+mode and tools return the error with recovery instructions.
 
 ### DLP Rule Creation
 
-1. Check connectors with `get_connector_policy` to verify they are enabled
-2. Validate the rule with `create_dlp_rule` using `validateOnly: true`
-3. Create the rule with `create_dlp_rule` without `validateOnly`
+- Check connectors with `get_connector_policy` to verify they are enabled
+- Validate the rule with `create_dlp_rule` using `validateOnly: true`
+- Create the rule with `create_dlp_rule` without `validateOnly`
 
 Only AUDIT and WARN actions are permitted. BLOCK mode is rejected by both the
 extension hooks and the server.
 
-## Naming
+## Environment Variables
 
-- **Chrome Enterprise Premium** — the Google product name
-- **chrome-enterprise-premium** — Gemini extension identifier
-- **cepbot** — npm package name and internal shorthand
+No custom environment variables are required. The server reads credentials from
+the standard ADC file (`~/.config/gcloud/application_default_credentials.json`)
+and detects GCP metadata when running on Google Cloud infrastructure.
 
 ## License
 

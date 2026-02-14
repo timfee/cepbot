@@ -14,7 +14,9 @@ function generateCVC(): string {
   return `${randomChar(PROJECT_ID_CHARS.CONSONANTS)}${randomChar(PROJECT_ID_CHARS.VOWELS)}${randomChar(PROJECT_ID_CHARS.CONSONANTS)}`;
 }
 
-/** Generates a GCP-compliant project ID in the format `mcp-cvc-cvc`. */
+/**
+ * Generates a GCP-compliant project ID in the format `mcp-cvc-cvc`.
+ */
 export function generateProjectId(): string {
   return `mcp-${generateCVC()}-${generateCVC()}`;
 }

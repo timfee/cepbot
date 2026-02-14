@@ -10,11 +10,13 @@ interface ADCSuccess {
   ok: true;
   token: string;
 }
+
 interface ADCFailure {
   cause?: unknown;
   ok: false;
   reason: string;
 }
+
 /**
  * Discriminated union for ADC verification outcomes.
  * On success, includes the access token for downstream scope checks.

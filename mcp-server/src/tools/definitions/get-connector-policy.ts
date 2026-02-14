@@ -153,7 +153,7 @@ export function registerGetConnectorPolicyTool(server: McpServer): void {
         }
 
         const resolved = await Promise.all(
-          ids.map((id) =>
+          ids.map(async (id) =>
             fetchPolicyForOrgUnit(
               customerId ?? "",
               id,

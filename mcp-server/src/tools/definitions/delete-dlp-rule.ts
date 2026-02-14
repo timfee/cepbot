@@ -19,6 +19,7 @@ export function registerDeleteDlpRuleTool(server: McpServer): void {
     {
       annotations: {
         destructiveHint: true,
+        idempotentHint: true,
         openWorldHint: true,
         readOnlyHint: false,
       },

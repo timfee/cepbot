@@ -48,9 +48,15 @@ interface ToolContext {
   };
 }
 
+interface ContentAnnotations {
+  audience?: ("assistant" | "user")[];
+  priority?: number;
+}
+
 type ToolContent =
-  | { text: string; type: "text" }
+  | { annotations?: ContentAnnotations; text: string; type: "text" }
   | {
+      annotations?: ContentAnnotations;
       resource: { mimeType?: string; text: string; uri: string };
       type: "resource";
     };

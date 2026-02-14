@@ -15,6 +15,7 @@ const { setTimeout: mockDelay } = await import("node:timers/promises");
 const { enableService, getServiceState } = await import("@lib/clients");
 const {
   callWithRetry,
+  createMcpLogger,
   createProgressLogger,
   enableApiWithRetry,
   ensureApisEnabled,
@@ -287,6 +288,44 @@ describe("apis", () => {
       logger({ data: "hello world", level: "info" });
 
       expect(spy).toHaveBeenCalledWith("[test-tag] [info] hello world");
+    });
+  });
+
+  describe("createMcpLogger", () => {
+    it("sends structured log messages via MCP logging channel", () => {
+      const mockServer = { sendLoggingMessage: vi.fn() };
+      const logger = createMcpLogger(mockServer as never, "test-logger");
+      logger({ data: "checking credentials", level: "info" });
+
+      expect(mockServer.sendLoggingMessage).toHaveBeenCalledWith({
+        data: "checking credentials",
+        level: "info",
+        logger: "test-logger",
+      });
+    });
+
+    it("maps warn level to syslog warning", () => {
+      const mockServer = { sendLoggingMessage: vi.fn() };
+      const logger = createMcpLogger(mockServer as never, "test-logger");
+      logger({ data: "retrying...", level: "warn" });
+
+      expect(mockServer.sendLoggingMessage).toHaveBeenCalledWith({
+        data: "retrying...",
+        level: "warning",
+        logger: "test-logger",
+      });
+    });
+
+    it("passes error level through unchanged", () => {
+      const mockServer = { sendLoggingMessage: vi.fn() };
+      const logger = createMcpLogger(mockServer as never, "test-logger");
+      logger({ data: "failed", level: "error" });
+
+      expect(mockServer.sendLoggingMessage).toHaveBeenCalledWith({
+        data: "failed",
+        level: "error",
+        logger: "test-logger",
+      });
     });
   });
 });

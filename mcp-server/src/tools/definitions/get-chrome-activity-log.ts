@@ -21,6 +21,7 @@ export function registerGetChromeActivityLogTool(server: McpServer): void {
     {
       annotations: {
         destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
         readOnlyHint: true,
       },

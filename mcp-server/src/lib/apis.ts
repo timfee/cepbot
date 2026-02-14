@@ -3,6 +3,8 @@
  * propagation delays after newly created projects.
  */
 
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
+
 import { setTimeout as delay } from "node:timers/promises";
 
 import { enableService, getServiceState } from "./clients";
@@ -23,10 +25,34 @@ export type ProgressCallback = (message: ProgressMessage) => void;
 
 /**
  * Creates a ProgressCallback that writes to stderr with a tagged prefix.
+ * Use this for pre-connection logging (before server.connect()).
  */
 export function createProgressLogger(tag: string): ProgressCallback {
   return (msg) => {
     console.error(`[${tag}] [${msg.level}] ${msg.data}`);
+  };
+}
+
+const SYSLOG_LEVEL = {
+  error: "error",
+  info: "info",
+  warn: "warning",
+} as const;
+
+/**
+ * Creates a ProgressCallback that sends structured log messages over
+ * the MCP logging channel. Use this for post-connection logging.
+ */
+export function createMcpLogger(
+  server: McpServer,
+  logger: string
+): ProgressCallback {
+  return (msg) => {
+    server.sendLoggingMessage({
+      data: msg.data,
+      level: SYSLOG_LEVEL[msg.level],
+      logger,
+    });
   };
 }
 

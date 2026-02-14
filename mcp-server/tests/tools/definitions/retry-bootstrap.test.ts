@@ -5,7 +5,7 @@ vi.mock("@lib/api/fetch", () => ({
 }));
 
 vi.mock("@lib/apis", () => ({
-  createProgressLogger: vi.fn().mockReturnValue(vi.fn()),
+  createMcpLogger: vi.fn().mockReturnValue(vi.fn()),
 }));
 
 vi.mock("@lib/bootstrap", () => ({
@@ -37,6 +37,7 @@ const mockServer = {
       registeredHandler = handler;
     }
   ),
+  sendLoggingMessage: vi.fn(),
 };
 
 // Import and register

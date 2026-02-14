@@ -145,10 +145,11 @@ describe("tool definitions", () => {
       expect(result.content[0].text).toContain("- Sales [1] (/Sales)");
       expect(result.content[0].text).toContain("Organizational Units (1)");
       expect(result.content[1]).toStrictEqual({
+        annotations: { audience: ["assistant"], priority: 0.5 },
         resource: {
           mimeType: "application/json",
           text: expect.stringContaining('"name": "Sales"'),
-          uri: "https://admin.google.com/ac/orgunits",
+          uri: "cep://org-units",
         },
         type: "resource",
       });
@@ -707,10 +708,11 @@ describe("tool definitions", () => {
         ctx
       );
       expect(result.content[1]).toStrictEqual({
+        annotations: { audience: ["assistant"], priority: 0.5 },
         resource: {
           mimeType: "application/json",
           text: expect.stringContaining('"orgUnitId": "ou123"'),
-          uri: "https://admin.google.com/ac/orgunits",
+          uri: "cep://connector-policies",
         },
         type: "resource",
       });

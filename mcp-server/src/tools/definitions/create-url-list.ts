@@ -19,6 +19,7 @@ export function registerCreateUrlListTool(server: McpServer): void {
     {
       annotations: {
         destructiveHint: false,
+        idempotentHint: false,
         openWorldHint: true,
         readOnlyHint: false,
       },

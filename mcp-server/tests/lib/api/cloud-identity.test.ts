@@ -97,7 +97,7 @@ describe("cloud-identity", () => {
       const url = new URL(calledUrl);
       const filter = url.searchParams.get("filter");
       expect(filter).toContain('customer == "customers/C012345"');
-      expect(filter).toContain('setting.type == "rule.dlp"');
+      expect(filter).toContain('setting.type == "settings/rule.dlp"');
     });
 
     it("builds filter with detector type", async () => {
@@ -108,7 +108,7 @@ describe("cloud-identity", () => {
       const calledUrl = vi.mocked(googleFetch).mock.calls[0][0];
       const url = new URL(calledUrl);
       const filter = url.searchParams.get("filter");
-      expect(filter).toContain('setting.type.matches("detector.*")');
+      expect(filter).toContain('setting.type.matches("settings/detector.*")');
     });
 
     it("omits customer from filter when not provided", async () => {
@@ -120,7 +120,7 @@ describe("cloud-identity", () => {
       const url = new URL(calledUrl);
       const filter = url.searchParams.get("filter") ?? "";
       expect(filter).not.toContain("customer");
-      expect(filter).toContain("rule.dlp");
+      expect(filter).toContain("settings/rule.dlp");
     });
 
     it("omits filter for unknown type without customer", async () => {

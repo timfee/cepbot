@@ -16,7 +16,7 @@
     "watch": "tsc --watch --noEmit",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "vitest run --testTimeout 30000 --dir e2e --exclude 'node_modules/**'",
+    "test:e2e": "vitest run --config e2e/vitest.config.ts",
     "check": "ultracite check --type-aware --type-check",
     "fix": "ultracite fix --type-aware --type-check"
   },

@@ -28,10 +28,15 @@ async function main(): Promise<void> {
     setServerDegraded(result.error);
   }
 
-  const server = new McpServer({
-    name: "cepbot",
-    version: __VERSION__,
-  });
+  const server = new McpServer(
+    {
+      name: "cepbot",
+      version: __VERSION__,
+    },
+    {
+      capabilities: { logging: {} },
+    }
+  );
 
   registerTools(server, result.ok ? { customerId: result.customerId } : {});
   registerRetryBootstrapTool(server);
@@ -39,11 +44,14 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(
-    result.ok
-      ? "[server] \u2713 cepbot MCP server running on stdio"
-      : "[server] \u26A0 cepbot MCP server running in DEGRADED mode on stdio"
-  );
+
+  server.sendLoggingMessage({
+    data: result.ok
+      ? "cepbot MCP server running on stdio"
+      : "cepbot MCP server running in DEGRADED mode on stdio",
+    level: result.ok ? "info" : "warning",
+    logger: "server",
+  });
 }
 
 try {

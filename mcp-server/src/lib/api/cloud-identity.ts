@@ -72,8 +72,8 @@ export async function deleteDlpRule(
 }
 
 const DLP_SETTING_FILTERS: Record<string, string> = {
-  detector: 'setting.type.matches("detector.*")',
-  rule: 'setting.type == "rule.dlp"',
+  detector: 'setting.type.matches("settings/detector.*")',
+  rule: 'setting.type == "settings/rule.dlp"',
 } as const;
 
 /**

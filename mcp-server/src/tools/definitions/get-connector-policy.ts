@@ -97,6 +97,7 @@ export function registerGetConnectorPolicyTool(server: McpServer): void {
     {
       annotations: {
         destructiveHint: false,
+        idempotentHint: true,
         openWorldHint: true,
         readOnlyHint: true,
       },
@@ -168,10 +169,11 @@ export function registerGetConnectorPolicyTool(server: McpServer): void {
           content: [
             { text, type: "text" as const },
             {
+              annotations: { audience: ["assistant" as const], priority: 0.5 },
               resource: {
                 mimeType: "application/json",
                 text: JSON.stringify(resolved, null, 2),
-                uri: "https://admin.google.com/ac/orgunits",
+                uri: "cep://connector-policies",
               },
               type: "resource" as const,
             },

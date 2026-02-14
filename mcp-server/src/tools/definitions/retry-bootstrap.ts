@@ -7,7 +7,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
 
 import { resetCachedAuth } from "@lib/api/fetch";
-import { createProgressLogger } from "@lib/apis";
+import { createMcpLogger } from "@lib/apis";
 import { bootstrap } from "@lib/bootstrap";
 import {
   formatDegradedModeError,
@@ -15,8 +15,6 @@ import {
   setServerHealthy,
 } from "@lib/server-state";
 import { customerIdCache } from "@tools/guarded-tool-call";
-
-const progress = createProgressLogger("retry-bootstrap");
 
 /**
  * Registers the retry_bootstrap tool with the MCP server.
@@ -29,6 +27,7 @@ export function registerRetryBootstrapTool(server: McpServer): void {
     {
       annotations: {
         destructiveHint: false,
+        idempotentHint: false,
         openWorldHint: true,
         readOnlyHint: false,
       },
@@ -38,6 +37,7 @@ export function registerRetryBootstrapTool(server: McpServer): void {
       title: "Retry Bootstrap",
     },
     async () => {
+      const progress = createMcpLogger(server, "retry-bootstrap");
       progress({
         data: "Clearing cached GoogleAuth instance...",
         level: "info",

@@ -78,7 +78,10 @@ TMPFILES=()
 run_sudo() { USED_SUDO=1; sudo "$@"; }
 
 cleanup() {
-  for f in "${TMPFILES[@]}"; do rm -f "$f"; done
+  # ${#arr[@]} is safe under set -u on bash 3.2; ${arr[@]} is not.
+  if [ ${#TMPFILES[@]} -gt 0 ]; then
+    for f in "${TMPFILES[@]}"; do rm -f "$f"; done
+  fi
   if [ "$USED_SUDO" = "1" ] && has sudo; then
     sudo -k 2>/dev/null || true
   fi
@@ -181,6 +184,17 @@ if has gcloud; then
 else
   if [ "$OS" = "Darwin" ]; then
     brew install --cask google-cloud-sdk
+    # The cask doesn't symlink gcloud into bin; source its PATH script
+    for _gcloud_inc in \
+      "$(brew --prefix 2>/dev/null)/share/google-cloud-sdk/path.bash.inc" \
+      /opt/homebrew/share/google-cloud-sdk/path.bash.inc \
+      /usr/local/share/google-cloud-sdk/path.bash.inc; do
+      if [ -f "$_gcloud_inc" ]; then
+        # shellcheck disable=SC1090
+        source "$_gcloud_inc"
+        break
+      fi
+    done
   elif has apt-get; then
     curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
       | run_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg

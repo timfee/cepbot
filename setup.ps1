@@ -112,7 +112,7 @@ function Invoke-CepbotSetup {
         Write-Host ''
 
         try {
-            Add-Type -MemberDefinition @'
+            $null = Add-Type -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool FlashWindow(IntPtr hwnd, bool bInvert);
 [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
 '@ -Name 'WinAPI' -Namespace 'UacFlash' -PassThru -ErrorAction SilentlyContinue
@@ -198,7 +198,8 @@ function Invoke-CepbotSetup {
     Write-Step '2/5  Google Cloud CLI'
 
     if (Test-Command 'gcloud') {
-        Write-Skip "gcloud $(gcloud version 2>&1 | Select-Object -First 1)"
+        $gcloudVer = Invoke-Native { gcloud version } | Select-Object -First 1
+        Write-Skip "gcloud $gcloudVer"
     }
     else {
         Write-Host '   Installing Google Cloud CLI...'

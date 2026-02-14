@@ -11,32 +11,30 @@ permissions:
   pull-requests: write
 
 jobs:
-  ci:
-    name: Lint, Build & Test
+  lint:
+    name: Lint (ultracite)
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - run: npm ci
+      - run: npm run check
 
-      - name: Lint
-        run: npm run fix
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Build
-        run: npm run build
-
-      - name: Test
-        id: test
-        run: npm test
+  test:
+    name: Unit Tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
 
       - name: Coverage Report
         if: (!cancelled()) && steps.test.conclusion != 'skipped' && github.event_name == 'pull_request'

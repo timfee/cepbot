@@ -6,19 +6,19 @@ handling, and server state.
 
 ## Modules
 
-| File | Responsibility |
-|---|---|
-| `constants.ts` | API base URLs, OAuth scopes, service names, retry config, DLP triggers |
-| `auth.ts` | ADC verification, token introspection, scope validation |
-| `bootstrap.ts` | Server initialization sequence (gcloud → ADC → scopes → project → APIs → customer ID) |
-| `server-state.ts` | Health state singleton (`healthy` / `degraded` / `booting`) |
-| `agent-errors.ts` | Structured errors with human-readable problem + recovery instructions |
-| `gcp.ts` | GCP metadata server detection |
-| `gcloud.ts` | gcloud CLI interaction, ADC file reading, quota project management |
-| `projects.ts` | Fallback GCP project creation |
-| `apis.ts` | API enablement with exponential backoff and progress logging |
-| `clients.ts` | Low-level GCP REST operations (enable API, poll operations) |
-| `api/` | Google API client modules (see `api/AGENTS.md`) |
+| File              | Responsibility                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `constants.ts`    | API base URLs, OAuth scopes, service names, retry config, DLP triggers                |
+| `auth.ts`         | ADC verification, token introspection, scope validation                               |
+| `bootstrap.ts`    | Server initialization sequence (gcloud → ADC → scopes → project → APIs → customer ID) |
+| `server-state.ts` | Health state singleton (`healthy` / `degraded` / `booting`)                           |
+| `agent-errors.ts` | Structured errors with human-readable problem + recovery instructions                 |
+| `gcp.ts`          | GCP metadata server detection                                                         |
+| `gcloud.ts`       | gcloud CLI interaction, ADC file reading, quota project management                    |
+| `projects.ts`     | Fallback GCP project creation                                                         |
+| `apis.ts`         | API enablement with exponential backoff and progress logging                          |
+| `clients.ts`      | Low-level GCP REST operations (enable API, poll operations)                           |
+| `api/`            | Google API client modules (see `api/AGENTS.md`)                                       |
 
 ## Conventions
 

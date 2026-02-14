@@ -11,7 +11,7 @@ Chrome enterprise security management.
 gemini extensions install https://github.com/timfee/cepbot
 ```
 
-This registers the extension with [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli).
+This registers the extension with [Gemini CLI](https://github.com/google-gemini/gemini-cli).
 After installation, authenticate with the required scopes (see [Authentication](#authentication))
 and start Gemini CLI to begin using the extension.
 
@@ -59,10 +59,29 @@ cepbot/
 
 ## Prerequisites
 
-- Node.js >= 18
+- Node.js >= 20
 - [gcloud CLI](https://cloud.google.com/sdk/docs/install)
 - Application Default Credentials configured with required scopes
-- [Gemini CLI](https://github.com/GoogleCloudPlatform/gemini-cli) (for extension usage)
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli) (for extension usage)
+
+### Quick Setup
+
+Both scripts install Node.js, gcloud CLI, and Gemini CLI, then walk you through
+Google Cloud authentication with the required OAuth scopes.
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/timfee/cepbot/main/setup.sh | bash
+```
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/timfee/cepbot/main/setup.ps1 | iex
+```
+
+Or clone the repo first and run `./setup.sh` or `.\setup.ps1` locally.
 
 ## Development Setup
 

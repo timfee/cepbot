@@ -21,19 +21,19 @@ resolved at build time. The package version is injected via `__VERSION__`.
 
 ## Key Commands
 
-| Command | Purpose |
-|---|---|
-| `npm run build` | Bundle with esbuild |
-| `npm test` | Unit tests with coverage |
-| `npm run check` | Lint + typecheck (Ultracite) |
-| `npm run fix` | Auto-fix lint issues |
-| `npm run typecheck` | Type-check only |
-| `npm run test:e2e` | E2E tests (requires ADC) |
+| Command             | Purpose                      |
+| ------------------- | ---------------------------- |
+| `npm run build`     | Bundle with esbuild          |
+| `npm test`          | Unit tests with coverage     |
+| `npm run check`     | Lint + typecheck (Ultracite) |
+| `npm run fix`       | Auto-fix lint issues         |
+| `npm run typecheck` | Type-check only              |
+| `npm run test:e2e`  | E2E tests (requires ADC)     |
 
 ## Conventions
 
 - ES modules (`"type": "module"`)
-- Node.js >= 18 target
+- Node.js >= 20 target
 - Path aliases: `@lib/*`, `@tools/*`, `@prompts/*` (defined in tsconfig.json)
 - 100% code coverage threshold for unit tests
 - Ultracite (Oxlint + Oxfmt) for linting and formatting

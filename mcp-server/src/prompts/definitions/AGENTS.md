@@ -5,12 +5,12 @@ Individual MCP prompt implementations. Each file exports a single
 
 ## Prompts
 
-| File | Prompt Name | Purpose |
-|---|---|---|
-| `cep.ts` | `cep` | Default health check — gathers baseline data, checks per-OU security, reports findings |
-| `diagnose.ts` | `diagnose` | Comprehensive bootstrap diagnosis and environment health check |
-| `maturity.ts` | `maturity` | DLP maturity assessment across organizational units |
-| `noise.ts` | `noise` | DLP rule noise analysis — identifies high false-positive rules |
+| File          | Prompt Name | Purpose                                                                                |
+| ------------- | ----------- | -------------------------------------------------------------------------------------- |
+| `cep.ts`      | `cep`       | Default health check — gathers baseline data, checks per-OU security, reports findings |
+| `diagnose.ts` | `diagnose`  | Comprehensive bootstrap diagnosis and environment health check                         |
+| `maturity.ts` | `maturity`  | DLP maturity assessment across organizational units                                    |
+| `noise.ts`    | `noise`     | DLP rule noise analysis — identifies high false-positive rules                         |
 
 ## Adding a New Prompt
 

@@ -4,12 +4,12 @@ Tool registration, shared schemas, and the execution wrapper for all MCP tools.
 
 ## Files
 
-| File | Purpose |
-|---|---|
-| `register.ts` | Registers all standard tools with the MCP server and seeds the customer ID cache |
-| `schemas.ts` | Shared Zod schemas (`orgUnitId`, `customerId`) and validation utilities |
+| File                   | Purpose                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| `register.ts`          | Registers all standard tools with the MCP server and seeds the customer ID cache                        |
+| `schemas.ts`           | Shared Zod schemas (`orgUnitId`, `customerId`) and validation utilities                                 |
 | `guarded-tool-call.ts` | Execution wrapper: auto-resolves customer IDs, normalizes org unit IDs, validates input, catches errors |
-| `definitions/` | Individual tool implementations (see `definitions/AGENTS.md`) |
+| `definitions/`         | Individual tool implementations (see `definitions/AGENTS.md`)                                           |
 
 ## Execution Flow
 

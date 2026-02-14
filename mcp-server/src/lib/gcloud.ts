@@ -46,7 +46,29 @@ interface ADCCredentials {
   type?: string;
 }
 
+/**
+ * On Windows gcloud is a .cmd wrapper, and execFileSync cannot launch
+ * .cmd files without a shell.  Pass { shell: true } so cmd.exe resolves it.
+ */
+const SHELL_OPTS = { shell: true } as const;
+
+/**
+ * Returns the platform-correct path to the ADC credentials file.
+ *
+ * Windows: %APPDATA%\gcloud\application_default_credentials.json
+ * Linux/macOS: ~/.config/gcloud/application_default_credentials.json
+ *
+ * Matches the resolution order used by google-auth-library and the
+ * gcloud CLI itself (see AIP-4110).
+ */
 function adcPath(): string {
+  if (process.platform === "win32") {
+    return join(
+      process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"),
+      "gcloud",
+      "application_default_credentials.json"
+    );
+  }
   return join(
     homedir(),
     ".config",
@@ -69,7 +91,7 @@ async function readADCFile(): Promise<ADCCredentials | null> {
  */
 export async function checkGcloudInstalled(): Promise<GcloudResult> {
   try {
-    execFileSync("gcloud", ["--version"]);
+    execFileSync("gcloud", ["--version"], SHELL_OPTS);
     return { ok: true };
   } catch (error: unknown) {
     const reason = errorMessage(error);
@@ -107,6 +129,7 @@ export async function verifyRequiredScopes(
 export function getGcloudProject(): string | null {
   try {
     const output = execFileSync("gcloud", ["config", "get-value", "project"], {
+      ...SHELL_OPTS,
       encoding: "utf8",
     });
     const trimmed = output.trim();
@@ -128,10 +151,9 @@ export async function getQuotaProject(): Promise<string | null> {
  * Sets the ADC quota project via the gcloud CLI.
  */
 export async function setQuotaProject(projectId: string): Promise<void> {
-  execFileSync("gcloud", [
-    "auth",
-    "application-default",
-    "set-quota-project",
-    projectId,
-  ]);
+  execFileSync(
+    "gcloud",
+    ["auth", "application-default", "set-quota-project", projectId],
+    SHELL_OPTS
+  );
 }

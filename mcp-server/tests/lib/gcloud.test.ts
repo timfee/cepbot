@@ -150,7 +150,7 @@ describe("gcloud", () => {
       expect(execFileSync).toHaveBeenCalledWith(
         "gcloud",
         ["config", "get-value", "project"],
-        { encoding: "utf8" }
+        { encoding: "utf8", shell: true }
       );
     });
 
@@ -196,12 +196,11 @@ describe("gcloud", () => {
     it("calls gcloud to set quota project", async () => {
       mockExecFileSuccess();
       await setQuotaProject("my-project");
-      expect(execFileSync).toHaveBeenCalledWith("gcloud", [
-        "auth",
-        "application-default",
-        "set-quota-project",
-        "my-project",
-      ]);
+      expect(execFileSync).toHaveBeenCalledWith(
+        "gcloud",
+        ["auth", "application-default", "set-quota-project", "my-project"],
+        { shell: true }
+      );
     });
   });
 });

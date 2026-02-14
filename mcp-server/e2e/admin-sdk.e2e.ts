@@ -4,8 +4,6 @@
  * Verifies that URL paths, query params, and response shapes for
  * getCustomerId, listOrgUnits, and listChromeActivities match what
  * the real Admin SDK returns.
- *
- * Run: npm run test:e2e
  */
 
 import {
@@ -15,7 +13,7 @@ import {
 } from "@lib/api/admin-sdk";
 import { describe, expect, it } from "vitest";
 
-const CUSTOMER_ID = "C01b1e65b";
+import { CUSTOMER_ID } from "./fixtures";
 
 describe("Admin SDK", () => {
   it("getCustomerId returns a valid customer", async () => {
@@ -42,7 +40,6 @@ describe("Admin SDK", () => {
       userKey: "all",
     });
 
-    // May be empty if no recent activity, but must be an array
     expect(Array.isArray(activities)).toBe(true);
   });
 });

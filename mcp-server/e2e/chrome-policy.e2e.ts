@@ -5,8 +5,6 @@
  * format, and response parsing work against the real API. Also
  * validates that ConnectorPolicyFilter schema identifiers are
  * recognized by the API (not 400).
- *
- * Run: npm run test:e2e
  */
 
 import { listOrgUnits } from "@lib/api/admin-sdk";
@@ -18,12 +16,7 @@ import {
 import { GoogleApiError } from "@lib/api/fetch";
 import { describe, expect, it } from "vitest";
 
-const CUSTOMER_ID = "C01b1e65b";
-
-/** Strip "id:" prefix — mirrors validateAndGetOrgUnitId in schemas.ts */
-function normalizeOrgUnitId(id: string): string {
-  return id.startsWith("id:") ? id.slice(3) : id;
-}
+import { CUSTOMER_ID, normalizeOrgUnitId } from "./fixtures";
 
 /**
  * Calls getConnectorPolicy and returns the HTTP status.

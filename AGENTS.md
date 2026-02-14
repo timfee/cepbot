@@ -1,6 +1,7 @@
 # Ultracite Code Standards
 
-This project uses **Ultracite**, a zero-config preset that enforces strict code quality standards through automated formatting and linting.
+This project uses **Ultracite**, a zero-config preset that enforces strict code
+quality standards through automated formatting and linting.
 
 ## Quick Reference
 
@@ -8,32 +9,38 @@ This project uses **Ultracite**, a zero-config preset that enforces strict code 
 - **Check for issues**: `npm exec -- ultracite check`
 - **Diagnose setup**: `npm exec -- ultracite doctor`
 
-Oxlint + Oxfmt (the underlying engine) provides robust linting and formatting. Most issues are automatically fixable.
+Oxlint + Oxfmt (the underlying engine) provides robust linting and formatting.
+Most issues are automatically fixable.
 
 ## Core Principles
 
-Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.
+Write code that is **accessible, performant, type-safe, and maintainable**.
+Focus on clarity and explicit intent over brevity.
 
 ### Type Safety & Explicitness
 
-- Use explicit types for function parameters and return values when they enhance clarity
+- Use explicit types for function parameters and return values when they enhance
+  clarity
 - Prefer `unknown` over `any` when the type is genuinely unknown
 - Use const assertions (`as const`) for immutable values and literal types
 - Leverage TypeScript's type narrowing instead of type assertions
-- Use meaningful variable names instead of magic numbers - extract constants with descriptive names
+- Use meaningful variable names instead of magic numbers - extract constants
+  with descriptive names
 
 ### Modern JavaScript/TypeScript
 
 - Use arrow functions for callbacks and short functions
 - Prefer `for...of` loops over `.forEach()` and indexed `for` loops
-- Use optional chaining (`?.`) and nullish coalescing (`??`) for safer property access
+- Use optional chaining (`?.`) and nullish coalescing (`??`) for safer property
+  access
 - Prefer template literals over string concatenation
 - Use destructuring for object and array assignments
 - Use `const` by default, `let` only when reassignment is needed, never `var`
 
 ### Async & Promises
 
-- Always `await` promises in async functions - don't forget to use the return value
+- Always `await` promises in async functions - don't forget to use the return
+  value
 - Use `async/await` syntax instead of promise chains for better readability
 - Handle errors appropriately in async code with try-catch blocks
 - Don't use async functions as Promise executors
@@ -44,9 +51,15 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 - Throw `Error` objects with descriptive messages, not strings or other values
 - Use `try-catch` blocks meaningfully - don't catch errors just to rethrow them
 - Prefer early returns over nested conditionals for error cases
-- **Keep error handling side-effect free** — return structured results (e.g., discriminated unions like `{ ok: true } | { ok: false; reason: string }`) instead of logging inside the function. Let callers decide how to present errors.
-- **Always annotate `catch` clauses as `unknown`** (`catch (error: unknown)`) and narrow with `instanceof Error` before accessing `.message` or other properties. Never access untyped properties on a caught value.
-- **Preserve the original error as `cause`** when wrapping or returning errors so callers can inspect the full chain.
+- **Keep error handling side-effect free** — return structured results (e.g.,
+  discriminated unions like `{ ok: true } | { ok: false; reason: string }`)
+  instead of logging inside the function. Let callers decide how to present
+  errors.
+- **Always annotate `catch` clauses as `unknown`** (`catch (error: unknown)`)
+  and narrow with `instanceof Error` before accessing `.message` or other
+  properties. Never access untyped properties on a caught value.
+- **Preserve the original error as `cause`** when wrapping or returning errors
+  so callers can inspect the full chain.
 
 ### Code Organization
 
@@ -79,15 +92,22 @@ Write code that is **accessible, performant, type-safe, and maintainable**. Focu
 
 ## When Oxlint + Oxfmt Can't Help
 
-Oxlint + Oxfmt's linter will catch most issues automatically. Focus your attention on:
+Oxlint + Oxfmt's linter will catch most issues automatically. Focus your
+attention on:
 
-1. **Business logic correctness** - Oxlint + Oxfmt can't validate your algorithms
-2. **Meaningful naming** - Use descriptive names for functions, variables, and types
+1. **Business logic correctness** - Oxlint + Oxfmt can't validate your
+   algorithms
+2. **Meaningful naming** - Use descriptive names for functions, variables, and
+   types
 3. **Architecture decisions** - Component structure, data flow, and API design
 4. **Edge cases** - Handle boundary conditions and error states
-5. **User experience** - Accessibility, performance, and usability considerations
-6. **Documentation** - Add comments for complex logic, but prefer self-documenting code
+5. **User experience** - Accessibility, performance, and usability
+   considerations
+6. **Documentation** - Add comments for complex logic, but prefer
+   self-documenting code
 
----
 
-Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run `npm exec -- ultracite fix --type-aware --type-check` before committing to ensure compliance.
+
+Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run
+`npm exec -- ultracite fix --type-aware --type-check` before committing to
+ensure compliance.

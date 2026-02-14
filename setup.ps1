@@ -141,7 +141,7 @@ function Invoke-CepbotSetup {
 
     # ------ 1. Node.js -------------------------------------------------------
 
-    Write-Step '1/5  Node.js (>= 20)'
+    Write-Step '1/6  Node.js (>= 20)'
 
     if (Test-Command 'node') {
         $nodeVersion = (node --version) -replace '^v', ''
@@ -195,7 +195,7 @@ function Invoke-CepbotSetup {
 
     # ------ 2. Google Cloud CLI -----------------------------------------------
 
-    Write-Step '2/5  Google Cloud CLI'
+    Write-Step '2/6  Google Cloud CLI'
 
     if (Test-Command 'gcloud') {
         $gcloudVer = Invoke-Native { gcloud version } | Select-Object -First 1
@@ -217,7 +217,7 @@ function Invoke-CepbotSetup {
 
     # ------ 3. Gemini CLI ----------------------------------------------------
 
-    Write-Step '3/5  Gemini CLI'
+    Write-Step '3/6  Gemini CLI'
 
     $geminiInstalled = Test-Command 'gemini'
     if (-not $geminiInstalled -and (Test-Command 'npm')) {
@@ -247,7 +247,7 @@ function Invoke-CepbotSetup {
 
     # ------ 4. Authenticate ---------------------------------------------------
 
-    Write-Step '4/5  Google Cloud authentication'
+    Write-Step '4/6  Google Cloud authentication'
 
     $scopes = @(
         'https://www.googleapis.com/auth/admin.directory.customer.readonly'
@@ -284,13 +284,98 @@ function Invoke-CepbotSetup {
         Write-Ok 'Authenticated with required scopes'
     }
 
-    # ------ 5. Install extension ----------------------------------------------
+    # Set quota project to avoid "quota exceeded" errors on API calls.
+    # Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts.
+    $projectId = $null
+    $projectLines = Invoke-Native { gcloud config get-value project } | Out-String
+    foreach ($line in $projectLines -split '\r?\n') {
+        $l = $line.Trim()
+        if ($l -and $l -ne '(unset)' -and $l -notmatch '^(WARNING|ERROR)') {
+            $projectId = $l
+            break
+        }
+    }
 
-    Write-Step '5/5  Install cepbot Gemini extension'
+    if ($projectId) {
+        Invoke-Native { gcloud auth application-default set-quota-project $projectId }
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Quota project: $projectId"
+        }
+        else {
+            Write-Warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
+        }
+    }
+    else {
+        Write-Warn 'No GCP project configured. The agent will attempt to create one on first use.'
+    }
+
+    # ------ 5. Gemini CLI configuration ----------------------------------------
+
+    Write-Step '5/6  Gemini CLI configuration'
+
+    $geminiDir = Join-Path $env:USERPROFILE '.gemini'
+    $geminiSettings = Join-Path $geminiDir 'settings.json'
+    $needsGeminiAuth = $true
+
+    if (Test-Path $geminiSettings) {
+        try {
+            $authType = (Get-Content $geminiSettings -Raw | ConvertFrom-Json).security.auth.selectedType
+            if ($authType) {
+                Write-Skip "Gemini CLI auth ($authType)"
+                $needsGeminiAuth = $false
+            }
+        }
+        catch {}
+    }
+
+    if ($needsGeminiAuth) {
+        if (-not (Test-Path $geminiDir)) {
+            New-Item -ItemType Directory -Path $geminiDir -Force | Out-Null
+        }
+        '{ "security": { "auth": { "selectedType": "oauth-personal" } } }' |
+            Set-Content -Path $geminiSettings -Encoding UTF8
+        Write-Ok 'Configured Gemini CLI to use Google login'
+    }
+
+    # ------ 6. Install extension ----------------------------------------------
+
+    Write-Step '6/6  Install cepbot Gemini extension'
 
     Write-Host '   Registering extension...'
     Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
-    if (-not (Assert-ExitCode 'Extension install')) { return }
+    $installExitCode = $LASTEXITCODE
+
+    if ($installExitCode -eq 0) {
+        # Success on first try
+    }
+    elseif ($installExitCode -eq 41) {
+        # Exit code 41 = FatalAuthenticationError.  The CLI validated its
+        # global auth state before processing the subcommand.  Launch gemini
+        # interactively so the user can complete browser sign-in, then retry.
+        Write-Warn 'Extension install needs Gemini CLI authentication first.'
+        Write-Host ''
+        Write-Host '   Launching Gemini CLI for first-time sign-in.' -ForegroundColor Yellow
+        Write-Host '   A browser window will open — complete the sign-in there.' -ForegroundColor Yellow
+        Write-Host '   Once authenticated, type /quit to return to setup.' -ForegroundColor Yellow
+        Write-Host ''
+        # Avoid Invoke-Native here — its 2>&1 redirect can interfere with
+        # interactive terminal programs.
+        try {
+            $ErrorActionPreference = 'SilentlyContinue'
+            & gemini
+        }
+        finally {
+            $ErrorActionPreference = 'Stop'
+        }
+        Write-Host ''
+        Write-Host '   Retrying extension install...'
+        Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
+        if (-not (Assert-ExitCode 'Extension install')) { return }
+    }
+    else {
+        Write-Fail "Extension install failed (exit code $installExitCode). Check your network connection and try again."
+        return
+    }
     Write-Ok 'cepbot extension installed'
 
     # ------ done --------------------------------------------------------------

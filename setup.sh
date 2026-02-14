@@ -112,7 +112,7 @@ fi
 # ---------- 1. Homebrew (macOS only) / package manager check ------------------
 
 if [ "$OS" = "Darwin" ]; then
-  step '1/6  Homebrew'
+  step '1/7  Homebrew'
 
   if has brew; then
     skip "brew $(brew --version 2>&1 | sed -n '1p')"
@@ -126,13 +126,13 @@ if [ "$OS" = "Darwin" ]; then
     fi
   fi
 else
-  step '1/6  Package manager'
+  step '1/7  Package manager'
   ok "Using system package manager ($OS)"
 fi
 
 # ---------- 2. Node.js -------------------------------------------------------
 
-step '2/6  Node.js (>= 20)'
+step '2/7  Node.js (>= 20)'
 
 install_node() {
   if [ "$OS" = "Darwin" ]; then
@@ -191,7 +191,7 @@ ok "node v${node_version}"
 
 # ---------- 3. Google Cloud CLI -----------------------------------------------
 
-step '3/6  Google Cloud CLI'
+step '3/7  Google Cloud CLI'
 
 if has gcloud; then
   skip "gcloud $(gcloud version 2>&1 | sed -n '1p')"
@@ -242,7 +242,7 @@ ok 'gcloud CLI ready'
 
 # ---------- 4. Gemini CLI ----------------------------------------------------
 
-step '4/6  Gemini CLI'
+step '4/7  Gemini CLI'
 
 gemini_installed=0
 if has gemini; then
@@ -263,7 +263,7 @@ ok 'gemini CLI ready'
 
 # ---------- 5. Authenticate ---------------------------------------------------
 
-step '5/6  Google Cloud authentication'
+step '5/7  Google Cloud authentication'
 
 SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly"
 SCOPES+=",https://www.googleapis.com/auth/admin.directory.orgunit.readonly"
@@ -301,13 +301,79 @@ else
   do_auth
 fi
 
-# ---------- 6. Install extension ----------------------------------------------
+# Set quota project to avoid "quota exceeded" errors on API calls.
+# Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts.
+project_id=""
+raw_project="$(gcloud config get-value project 2>/dev/null || true)"
+project_id="$(printf '%s' "$raw_project" | tr -d '[:space:]')"
+if [ "$project_id" = "(unset)" ]; then
+  project_id=""
+fi
 
-step '6/6  Install cepbot Gemini extension'
+if [ -n "$project_id" ]; then
+  if gcloud auth application-default set-quota-project "$project_id" 2>/dev/null; then
+    ok "Quota project: $project_id"
+  else
+    warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
+  fi
+else
+  warn 'No GCP project configured. The agent will attempt to create one on first use.'
+fi
+
+# ---------- 6. Gemini CLI configuration ----------------------------------------
+
+step '6/7  Gemini CLI configuration'
+
+GEMINI_DIR="${HOME}/.gemini"
+GEMINI_SETTINGS="${GEMINI_DIR}/settings.json"
+needs_gemini_auth=1
+
+if [ -f "$GEMINI_SETTINGS" ]; then
+  # Check if auth type is already configured (simple grep — no jq dependency)
+  auth_type="$(grep -o '"selectedType"[[:space:]]*:[[:space:]]*"[^"]*"' "$GEMINI_SETTINGS" 2>/dev/null | head -n 1 | sed 's/.*"selectedType"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)"
+  if [ -n "$auth_type" ]; then
+    skip "Gemini CLI auth ($auth_type)"
+    needs_gemini_auth=0
+  fi
+fi
+
+if [ "$needs_gemini_auth" = "1" ]; then
+  mkdir -p "$GEMINI_DIR"
+  cat > "$GEMINI_SETTINGS" <<'SETTINGS'
+{ "security": { "auth": { "selectedType": "oauth-personal" } } }
+SETTINGS
+  ok 'Configured Gemini CLI to use Google login'
+fi
+
+# ---------- 7. Install extension ----------------------------------------------
+
+step '7/7  Install cepbot Gemini extension'
 
 echo '   Registering extension...'
-gemini extensions install https://github.com/timfee/cepbot \
-  || fail 'Failed to install the cepbot extension.'
+# Capture exit code without triggering set -e
+install_rc=0
+gemini extensions install https://github.com/timfee/cepbot 2>&1 || install_rc=$?
+
+if [ "$install_rc" -eq 0 ]; then
+  : # Success on first try
+elif [ "$install_rc" -eq 41 ]; then
+  # Exit code 41 = FatalAuthenticationError.  The CLI validated its global
+  # auth state before processing the subcommand.  Launch gemini interactively
+  # so the user can complete the browser sign-in, then retry.
+  warn 'Extension install needs Gemini CLI authentication first.'
+  echo ''
+  printf "   ${YELLOW}Launching Gemini CLI for first-time sign-in.${RESET}\n"
+  printf "   ${YELLOW}A browser window will open — complete the sign-in there.${RESET}\n"
+  printf "   ${YELLOW}Once authenticated, type /quit to return to setup.${RESET}\n"
+  echo ''
+  gemini || true
+  echo ''
+  echo '   Retrying extension install...'
+  gemini extensions install https://github.com/timfee/cepbot \
+    || fail 'Failed to install the cepbot extension.'
+else
+  fail "Extension install failed (exit code $install_rc). Check your network connection and try again."
+fi
 ok 'cepbot extension installed'
 
 # ---------- done --------------------------------------------------------------

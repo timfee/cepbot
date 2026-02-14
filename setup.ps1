@@ -27,6 +27,11 @@ function Invoke-CepbotSetup {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # Remember where the user started so we can restore it when we're done.
+    # Tool installers (winget, gcloud, etc.) can silently change $PWD —
+    # without this the user may end up in C:\Windows\System32.
+    $originalDir = Get-Location
+
     # When invoked via "irm … | iex", execution policy is bypassed for the
     # script text itself, but child .ps1 shims on disk (npm.ps1, gemini.ps1,
     # etc.) are still subject to the machine policy and will fail with
@@ -34,6 +39,7 @@ function Invoke-CepbotSetup {
     # not persist after the terminal is closed and does not require admin.
     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
+    try {
     # ------ helpers ----------------------------------------------------------
 
     function Write-Step {
@@ -427,6 +433,11 @@ function Invoke-CepbotSetup {
     Write-Host '  Setup complete!' -ForegroundColor Green
     Write-Host '  Run "gemini" to start using the Chrome Enterprise Premium Bot.' -ForegroundColor White
     Write-Host ''
+
+    } # end try
+    finally {
+        Set-Location -Path $originalDir
+    }
 }
 
 # Run the setup, then clean up the function from the caller's scope.

@@ -36,7 +36,7 @@ describe("DLP rule listing", () => {
     expect(found?.setting?.type).toBe(directPolicy.setting?.type);
 
     // Triggers from the API match our CHROME_DLP_TRIGGERS constants
-    const apiTriggers = directPolicy.setting?.value?.triggers as string[];
+    const apiTriggers = directPolicy.setting?.value?.triggers!;
     expect(apiTriggers).toBeDefined();
 
     const knownTriggers = new Set(Object.values(CHROME_DLP_TRIGGERS));

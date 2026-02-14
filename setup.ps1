@@ -172,6 +172,14 @@ function Invoke-CepbotSetup {
     }
     Write-Ok "node $nodeVersion"
 
+    # Ensure npm's global prefix directory exists. On a fresh Node.js install
+    # the %APPDATA%\npm folder is not created until the first global install,
+    # but npm itself will ENOENT if the directory is missing.
+    $npmGlobalDir = Join-Path $env:APPDATA 'npm'
+    if (-not (Test-Path $npmGlobalDir)) {
+        New-Item -ItemType Directory -Path $npmGlobalDir -Force | Out-Null
+    }
+
     # ------ 2. Google Cloud CLI -----------------------------------------------
 
     Write-Step '2/5  Google Cloud CLI'

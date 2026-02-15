@@ -6,7 +6,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
 
-import { resetCachedAuth } from "@lib/api/fetch";
+import { resetCachedAuth, setFallbackQuotaProject } from "@lib/api/fetch";
 import { createMcpLogger } from "@lib/apis";
 import { bootstrap } from "@lib/bootstrap";
 import {
@@ -49,6 +49,7 @@ export function registerRetryBootstrapTool(server: McpServer): void {
       const result = await bootstrap(progress);
 
       if (result.ok) {
+        setFallbackQuotaProject(result.projectId);
         setServerHealthy(result.projectId, result.region);
         if (result.customerId) {
           customerIdCache.set(result.customerId);

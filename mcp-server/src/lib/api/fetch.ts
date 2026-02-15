@@ -24,9 +24,25 @@ export class GoogleApiError extends Error {
 
 let cachedAuth: GoogleAuth | undefined;
 
+/**
+ * Bootstrap-resolved quota project ID, used as a fallback when the
+ * GoogleAuth client's `quotaProjectId` is null (e.g. because
+ * `gcloud auth application-default set-quota-project` failed to
+ * persist the value to the ADC file).
+ */
+let fallbackQuotaProject: string | undefined;
+
 function getAuth(): GoogleAuth {
   cachedAuth ??= new GoogleAuth();
   return cachedAuth;
+}
+
+/**
+ * Stores the bootstrap-resolved quota project so `googleFetch` can
+ * fall back to it when the ADC file lacks a `quota_project_id`.
+ */
+export function setFallbackQuotaProject(projectId: string): void {
+  fallbackQuotaProject = projectId;
 }
 
 /**
@@ -36,6 +52,7 @@ function getAuth(): GoogleAuth {
  */
 export function resetCachedAuth(): void {
   cachedAuth = undefined;
+  fallbackQuotaProject = undefined;
 }
 
 interface ResolvedCredentials {
@@ -59,7 +76,7 @@ async function resolveCredentials(
   }
 
   return {
-    quotaProjectId: client.quotaProjectId ?? undefined,
+    quotaProjectId: client.quotaProjectId ?? fallbackQuotaProject ?? undefined,
     token: tokenResponse.token,
   };
 }

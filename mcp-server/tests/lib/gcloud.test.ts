@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
@@ -9,11 +9,16 @@ vi.mock("node:fs/promises", () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("node:fs", () => ({
+  existsSync: vi.fn().mockReturnValue(false),
+}));
+
 vi.mock("node:os", () => ({
   homedir: vi.fn().mockReturnValue("/home/user"),
 }));
 
 const { execFileSync } = await import("node:child_process");
+const { existsSync } = await import("node:fs");
 const { readFile, writeFile } = await import("node:fs/promises");
 const {
   checkGcloudInstalled,
@@ -191,6 +196,172 @@ describe("gcloud", () => {
       vi.mocked(readFile).mockRejectedValue(new Error("ENOENT"));
       const project = await getQuotaProject();
       expect(project).toBeNull();
+    });
+  });
+
+  describe("adcPath (Windows)", () => {
+    const originalPlatform = process.platform;
+    const savedAppdata = process.env.APPDATA;
+
+    afterEach(() => {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      if (savedAppdata === undefined) {
+        delete process.env.APPDATA;
+      } else {
+        process.env.APPDATA = savedAppdata;
+      }
+    });
+
+    it("uses APPDATA env var on win32", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      process.env.APPDATA = "/fake/appdata";
+      vi.mocked(readFile).mockResolvedValue(
+        JSON.stringify({ quota_project_id: "proj" })
+      );
+
+      await getQuotaProject();
+
+      expect(readFile).toHaveBeenCalledWith(
+        expect.stringContaining("/fake/appdata"),
+        "utf8"
+      );
+    });
+
+    it("falls back to homedir when APPDATA is not set on win32", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      delete process.env.APPDATA;
+      vi.mocked(readFile).mockResolvedValue(JSON.stringify({}));
+
+      await getQuotaProject();
+
+      expect(readFile).toHaveBeenCalledWith(
+        expect.stringContaining("AppData"),
+        "utf8"
+      );
+    });
+  });
+
+  describe("checkGcloudInstalled (Windows fallback)", () => {
+    const originalPlatform = process.platform;
+    const savedPath = process.env.PATH;
+    const savedLocalAppData = process.env.LOCALAPPDATA;
+    const savedProgramFiles = process.env.ProgramFiles;
+    const savedProgramFilesX86 = process.env["ProgramFiles(x86)"];
+    const savedProgramW6432 = process.env.PROGRAMW6432;
+
+    afterEach(() => {
+      Object.defineProperty(process, "platform", { value: originalPlatform });
+      process.env.PATH = savedPath;
+      if (savedLocalAppData === undefined) {
+        delete process.env.LOCALAPPDATA;
+      } else {
+        process.env.LOCALAPPDATA = savedLocalAppData;
+      }
+      if (savedProgramFiles === undefined) {
+        delete process.env.ProgramFiles;
+      } else {
+        process.env.ProgramFiles = savedProgramFiles;
+      }
+      if (savedProgramFilesX86 === undefined) {
+        delete process.env["ProgramFiles(x86)"];
+      } else {
+        process.env["ProgramFiles(x86)"] = savedProgramFilesX86;
+      }
+      if (savedProgramW6432 === undefined) {
+        delete process.env.PROGRAMW6432;
+      } else {
+        process.env.PROGRAMW6432 = savedProgramW6432;
+      }
+      vi.mocked(existsSync).mockReset().mockReturnValue(false);
+    });
+
+    it("finds gcloud in LOCALAPPDATA and succeeds on retry", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      process.env.LOCALAPPDATA = "/fake/local";
+      delete process.env.ProgramFiles;
+      delete process.env["ProgramFiles(x86)"];
+      delete process.env.PROGRAMW6432;
+
+      let callCount = 0;
+      vi.mocked(execFileSync).mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 1) throw new Error("not on PATH");
+        return "ok";
+      });
+      vi.mocked(existsSync).mockReturnValue(true);
+
+      const result = await checkGcloudInstalled();
+      expect(result).toStrictEqual({ ok: true });
+      expect(process.env.PATH).toContain("/fake/local");
+    });
+
+    it("falls through when gcloud found but retry also fails", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      process.env.LOCALAPPDATA = "/fake/local";
+      delete process.env.ProgramFiles;
+      delete process.env["ProgramFiles(x86)"];
+      delete process.env.PROGRAMW6432;
+
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw new Error("still broken");
+      });
+      vi.mocked(existsSync).mockReturnValue(true);
+
+      const result = await checkGcloudInstalled();
+      expect(result).toMatchObject({ ok: false, reason: "still broken" });
+    });
+
+    it("falls through when no well-known location has gcloud.cmd", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      process.env.LOCALAPPDATA = "/fake/local";
+      delete process.env.ProgramFiles;
+      delete process.env["ProgramFiles(x86)"];
+      delete process.env.PROGRAMW6432;
+
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw new Error("not found");
+      });
+      vi.mocked(existsSync).mockReturnValue(false);
+
+      const result = await checkGcloudInstalled();
+      expect(result).toMatchObject({ ok: false, reason: "not found" });
+    });
+
+    it("prepends to PATH even when PATH is initially undefined", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      process.env.LOCALAPPDATA = "/fake/local";
+      delete process.env.ProgramFiles;
+      delete process.env["ProgramFiles(x86)"];
+      delete process.env.PROGRAMW6432;
+      delete process.env.PATH;
+
+      let callCount = 0;
+      vi.mocked(execFileSync).mockImplementation(() => {
+        callCount += 1;
+        if (callCount === 1) throw new Error("not on PATH");
+        return "ok";
+      });
+      vi.mocked(existsSync).mockReturnValue(true);
+
+      const result = await checkGcloudInstalled();
+      expect(result).toStrictEqual({ ok: true });
+      expect(process.env.PATH).toContain("/fake/local");
+    });
+
+    it("skips undefined env var bases without checking existsSync", async () => {
+      Object.defineProperty(process, "platform", { value: "win32" });
+      delete process.env.LOCALAPPDATA;
+      delete process.env.ProgramFiles;
+      delete process.env["ProgramFiles(x86)"];
+      delete process.env.PROGRAMW6432;
+
+      vi.mocked(execFileSync).mockImplementation(() => {
+        throw new Error("not found");
+      });
+
+      const result = await checkGcloudInstalled();
+      expect(result).toMatchObject({ ok: false });
+      expect(existsSync).not.toHaveBeenCalled();
     });
   });
 

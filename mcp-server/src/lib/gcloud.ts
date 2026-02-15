@@ -94,8 +94,6 @@ async function readADCFile(): Promise<ADCCredentials | null> {
  * processes.
  */
 function findGcloudOnWindows(): string | null {
-  if (process.platform !== "win32") return null;
-
   const bases = [
     process.env.LOCALAPPDATA,
     process.env.ProgramFiles,

@@ -12,8 +12,12 @@ const MockGoogleAuth = vi.mocked(GoogleAuth);
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-const { GoogleApiError, resetCachedAuth, setFallbackQuotaProject, googleFetch } =
-  await import("@lib/api/fetch");
+const {
+  GoogleApiError,
+  resetCachedAuth,
+  setFallbackQuotaProject,
+  googleFetch,
+} = await import("@lib/api/fetch");
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });

@@ -487,6 +487,11 @@ function Invoke-CepbotSetup {
 
     Write-Step '8/8  Install cepbot Gemini extension'
 
+    # Uninstall first if already present — reinstalling over an existing
+    # extension crashes the Gemini CLI with a libuv assertion failure.
+    $null = Invoke-Native { gemini extensions uninstall chrome-enterprise-premium }
+    # Ignore exit code — uninstall fails harmlessly if not installed.
+
     Write-Host '   Registering extension...'
     Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
     $installExitCode = $LASTEXITCODE

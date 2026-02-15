@@ -418,6 +418,10 @@ fi
 
 step '8/8  Install cepbot Gemini extension'
 
+# Uninstall first if already present — reinstalling over an existing
+# extension crashes the Gemini CLI with a libuv assertion failure.
+gemini extensions uninstall chrome-enterprise-premium 2>/dev/null || true
+
 echo '   Registering extension...'
 # Capture exit code without triggering set -e
 install_rc=0

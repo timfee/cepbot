@@ -6,7 +6,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
 
-import { setFallbackQuotaProject } from "./lib/api/fetch";
 import { createProgressLogger } from "./lib/apis";
 import { bootstrap } from "./lib/bootstrap";
 import { errorMessage } from "./lib/constants";
@@ -23,7 +22,6 @@ async function main(): Promise<void> {
   const result = await bootstrap(progress);
 
   if (result.ok) {
-    setFallbackQuotaProject(result.projectId);
     setServerHealthy(result.projectId, result.region);
   } else {
     console.error(`[bootstrap] \u2717 ${result.error.problem}`);

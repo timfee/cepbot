@@ -210,13 +210,15 @@ async function patchADCQuotaProject(projectId: string): Promise<void> {
  */
 export async function setQuotaProject(projectId: string): Promise<void> {
   // Try gcloud CLI first (canonical approach).
+  let gcloudError: unknown;
   try {
     execFileSync(
       "gcloud",
       ["auth", "application-default", "set-quota-project", projectId],
       SHELL_OPTS
     );
-  } catch {
+  } catch (error: unknown) {
+    gcloudError = error;
     // gcloud CLI failed — fall back to direct file write.
     await patchADCQuotaProject(projectId);
   }
@@ -226,7 +228,8 @@ export async function setQuotaProject(projectId: string): Promise<void> {
   if (persisted !== projectId) {
     const actual = persisted ?? "(none)";
     throw new Error(
-      `Failed to persist quota project to ADC file. Expected "${projectId}", got "${actual}".`
+      `Failed to persist quota project to ADC file. Expected "${projectId}", got "${actual}".`,
+      { cause: gcloudError }
     );
   }
 }

@@ -209,7 +209,6 @@ async function patchADCQuotaProject(projectId: string): Promise<void> {
  * re-reading the file — throws if neither approach succeeds.
  */
 export async function setQuotaProject(projectId: string): Promise<void> {
-  // Try gcloud CLI first (canonical approach).
   let gcloudError: unknown;
   try {
     execFileSync(
@@ -219,11 +218,9 @@ export async function setQuotaProject(projectId: string): Promise<void> {
     );
   } catch (error: unknown) {
     gcloudError = error;
-    // gcloud CLI failed — fall back to direct file write.
     await patchADCQuotaProject(projectId);
   }
 
-  // Verify the value actually landed in the file.
   const persisted = await getQuotaProject();
   if (persisted !== projectId) {
     const actual = persisted ?? "(none)";

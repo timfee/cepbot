@@ -196,24 +196,18 @@ describe("fetch", () => {
       });
     });
 
-    it("sends NO x-goog-user-project header when ADC has no quota project and no fallback is set (the old broken behavior)", async () => {
-      // This reproduces the exact 403 failure: ADC has no quota_project_id,
-      // setQuotaProject failed silently, and no fallback was configured.
-      mockADC("adc-token"); // no quotaProjectId
+    it("omits x-goog-user-project when no quota project and no fallback", async () => {
+      mockADC("adc-token");
       mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
 
       await googleFetch("https://admin.googleapis.com/something");
 
-      // Without the fallback, the header is absent → Google returns 403
       const [, fetchOpts] = mockFetch.mock.calls[0];
       expect(fetchOpts.headers).not.toHaveProperty("x-goog-user-project");
     });
 
     it("uses fallbackQuotaProject when ADC client has no quotaProjectId", async () => {
-      // This proves the fix: bootstrap resolved "my-project" and called
-      // setFallbackQuotaProject, so googleFetch sends the header even
-      // though the ADC file / GoogleAuth client has no quota_project_id.
-      mockADC("adc-token"); // no quotaProjectId on client
+      mockADC("adc-token");
       setFallbackQuotaProject("bootstrap-resolved-project");
       mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
 
@@ -231,7 +225,6 @@ describe("fetch", () => {
     });
 
     it("prefers ADC client quotaProjectId over fallback", async () => {
-      // If the ADC file WAS updated, use that value (it's more authoritative).
       mockADC("adc-token", "adc-project");
       setFallbackQuotaProject("fallback-project");
       mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
@@ -249,12 +242,11 @@ describe("fetch", () => {
     });
 
     it("resetCachedAuth clears the fallback quota project", async () => {
-      mockADC("adc-token"); // no quotaProjectId
+      mockADC("adc-token");
       setFallbackQuotaProject("some-project");
       resetCachedAuth();
 
-      // After reset, both the cached auth AND the fallback are gone.
-      mockADC("adc-token"); // re-mock since reset clears GoogleAuth
+      mockADC("adc-token");
       mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
 
       await googleFetch("https://admin.googleapis.com/something");

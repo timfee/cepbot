@@ -217,11 +217,6 @@ async function runBootstrap(log: ProgressCallback): Promise<BootstrapResult> {
     level: "info",
   });
 
-  // Make the resolved project ID available to googleFetch immediately.
-  // This is the authoritative bridge: even if gcloud's set-quota-project
-  // failed to persist the value to the ADC file, every subsequent API
-  // call (ensureApisEnabled, prefetchCustomerId, tool calls) will send
-  // the x-goog-user-project header via the fallback.
   setFallbackQuotaProject(quotaResult.projectId);
 
   log({

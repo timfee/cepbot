@@ -358,9 +358,6 @@ describe("bootstrap", () => {
   });
 
   it("calls setFallbackQuotaProject BEFORE ensureApisEnabled", async () => {
-    // This is the critical ordering test: the fallback must be set
-    // before any API calls happen inside bootstrap, otherwise
-    // ensureApisEnabled and prefetchCustomerId won't have the header.
     const callOrder: string[] = [];
 
     vi.mocked(setFallbackQuotaProject).mockImplementation(() => {
@@ -379,10 +376,6 @@ describe("bootstrap", () => {
   });
 
   it("calls setFallbackQuotaProject even when setQuotaProject fails (gcloud-config path)", async () => {
-    // This is the exact scenario that caused the 403: gcloud config
-    // returns a project, but setQuotaProject fails to persist it.
-    // Bootstrap must still call setFallbackQuotaProject so that
-    // googleFetch sends the x-goog-user-project header.
     vi.mocked(getQuotaProject).mockResolvedValue(null);
     vi.mocked(getGcloudProject).mockReturnValue("config-proj");
     vi.mocked(setQuotaProject).mockRejectedValue(new Error("gcloud failed"));

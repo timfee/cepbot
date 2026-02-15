@@ -15,6 +15,7 @@ import {
   scopeMissingError,
 } from "./agent-errors";
 import { getCustomerId } from "./api/admin-sdk";
+import { setFallbackQuotaProject } from "./api/fetch";
 import { ensureApisEnabled } from "./apis";
 import { verifyADCCredentials, verifyTokenScopes } from "./auth";
 import { errorMessage, SERVICE_NAMES, SCOPES } from "./constants";
@@ -215,6 +216,13 @@ async function runBootstrap(log: ProgressCallback): Promise<BootstrapResult> {
     data: `Quota project resolved: ${quotaResult.projectId} (region: ${quotaResult.region})`,
     level: "info",
   });
+
+  // Make the resolved project ID available to googleFetch immediately.
+  // This is the authoritative bridge: even if gcloud's set-quota-project
+  // failed to persist the value to the ADC file, every subsequent API
+  // call (ensureApisEnabled, prefetchCustomerId, tool calls) will send
+  // the x-goog-user-project header via the fallback.
+  setFallbackQuotaProject(quotaResult.projectId);
 
   log({
     data: `Enabling required APIs on ${quotaResult.projectId}: ${REQUIRED_APIS.join(", ")}`,

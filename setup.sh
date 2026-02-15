@@ -335,13 +335,41 @@ if [ -z "$project_id" ]; then
   fi
 fi
 
+# Helper: directly patch quota_project_id into the ADC JSON file when the
+# gcloud CLI command fails (e.g. permission issues, buggy SDK builds).
+patch_adc_quota_project() {
+  local pid="$1"
+  if [ ! -f "$adc_file" ]; then return 1; fi
+  # Use a simple sed replacement / insertion.  The ADC file is small,
+  # machine-generated JSON — this is safe.
+  if grep -q '"quota_project_id"' "$adc_file" 2>/dev/null; then
+    sed -i.bak "s/\"quota_project_id\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"quota_project_id\": \"${pid}\"/" "$adc_file" && rm -f "${adc_file}.bak"
+  else
+    # Insert before the closing brace
+    sed -i.bak "s/}$/,\"quota_project_id\": \"${pid}\"}/" "$adc_file" && rm -f "${adc_file}.bak"
+  fi
+}
+
+# Helper: verify the ADC file actually contains the expected quota_project_id.
+verify_adc_quota_project() {
+  local pid="$1"
+  if [ ! -f "$adc_file" ]; then return 1; fi
+  grep -q "\"quota_project_id\"[[:space:]]*:[[:space:]]*\"${pid}\"" "$adc_file" 2>/dev/null
+}
+
 # --- 6c. Try to persist the project as ADC quota project ---
 if [ -n "$project_id" ] && [ "$quota_set" = false ]; then
-  if gcloud auth application-default set-quota-project "$project_id" 2>/dev/null; then
+  gcloud auth application-default set-quota-project "$project_id" 2>/dev/null || true
+  if verify_adc_quota_project "$project_id"; then
     ok "Quota project: $project_id"
     quota_set=true
+  else
+    warn "gcloud set-quota-project did not persist. Patching ADC file directly..."
+    if patch_adc_quota_project "$project_id" && verify_adc_quota_project "$project_id"; then
+      ok "Quota project (patched): $project_id"
+      quota_set=true
+    fi
   fi
-  # If set-quota-project fails, we'll try creating a new project below
 fi
 
 # --- 6d. No usable project — create one (mirrors bootstrap.ts) ---
@@ -355,9 +383,17 @@ if [ "$quota_set" = false ]; then
   new_project_id="mcp-${cvc1}-${cvc2}"
 
   if gcloud projects create "$new_project_id" 2>/dev/null; then
-    if gcloud auth application-default set-quota-project "$new_project_id" 2>/dev/null; then
+    project_id="$new_project_id"
+    gcloud auth application-default set-quota-project "$new_project_id" 2>/dev/null || true
+    if verify_adc_quota_project "$new_project_id"; then
       ok "Created and set quota project: $new_project_id"
       quota_set=true
+    else
+      warn "gcloud set-quota-project did not persist. Patching ADC file directly..."
+      if patch_adc_quota_project "$new_project_id" && verify_adc_quota_project "$new_project_id"; then
+        ok "Created and set quota project (patched): $new_project_id"
+        quota_set=true
+      fi
     fi
   fi
 fi

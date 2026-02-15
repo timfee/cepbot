@@ -307,23 +307,86 @@ fi
 
 step '6/8  GCP quota project'
 
-# Set quota project to avoid "quota exceeded" errors on API calls.
-# Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts.
+# Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts:
+#   1. Check ADC file for existing quota_project_id
+#   2. Fall back to gcloud config project
+#   3. Try to set it as the ADC quota project
+#   4. If no project exists anywhere, create one
 project_id=""
-raw_project="$(gcloud config get-value project 2>/dev/null || true)"
-project_id="$(printf '%s' "$raw_project" | tr -d '[:space:]')"
-if [ "$project_id" = "(unset)" ]; then
-  project_id=""
+quota_set=false
+
+# --- 6a. Check ADC file for existing quota_project_id ---
+adc_file="${HOME}/.config/gcloud/application_default_credentials.json"
+if [ -f "$adc_file" ]; then
+  existing_quota="$(grep -o '"quota_project_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$adc_file" 2>/dev/null | head -n 1 | sed 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)"
+  if [ -n "$existing_quota" ]; then
+    project_id="$existing_quota"
+    ok "Quota project (from ADC): $project_id"
+    quota_set=true
+  fi
 fi
 
-if [ -n "$project_id" ]; then
+# --- 6b. Fall back to gcloud config project ---
+if [ -z "$project_id" ]; then
+  raw_project="$(gcloud config get-value project 2>/dev/null || true)"
+  project_id="$(printf '%s' "$raw_project" | tr -d '[:space:]')"
+  if [ "$project_id" = "(unset)" ]; then
+    project_id=""
+  fi
+fi
+
+# --- 6c. Try to persist the project as ADC quota project ---
+if [ -n "$project_id" ] && [ "$quota_set" = false ]; then
   if gcloud auth application-default set-quota-project "$project_id" 2>/dev/null; then
     ok "Quota project: $project_id"
-  else
-    warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
+    quota_set=true
   fi
-else
-  warn 'No GCP project configured. The agent will attempt to create one on first use.'
+  # If set-quota-project fails, we'll try creating a new project below
+fi
+
+# --- 6d. No usable project — create one (mirrors bootstrap.ts) ---
+if [ "$quota_set" = false ]; then
+  printf '   No usable quota project found. Creating one...\n'
+  consonants='bcdfghjklmnpqrstvwxyz'
+  vowels='aeiou'
+  pick_char() { local s="$1"; local i=$((RANDOM % ${#s})); printf '%s' "${s:$i:1}"; }
+  cvc1="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
+  cvc2="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
+  new_project_id="mcp-${cvc1}-${cvc2}"
+
+  if gcloud projects create "$new_project_id" 2>/dev/null; then
+    if gcloud auth application-default set-quota-project "$new_project_id" 2>/dev/null; then
+      ok "Created and set quota project: $new_project_id"
+      quota_set=true
+    fi
+  fi
+fi
+
+if [ "$quota_set" = false ]; then
+  warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
+fi
+
+# --- 6e. Enable required APIs (mirrors bootstrap.ts ensureApisEnabled) ---
+api_project_id=""
+if [ "$quota_set" = true ] && [ -f "$adc_file" ]; then
+  api_project_id="$(grep -o '"quota_project_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$adc_file" 2>/dev/null | head -n 1 | sed 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)"
+fi
+if [ -z "$api_project_id" ] && [ -n "$project_id" ]; then
+  api_project_id="$project_id"
+fi
+
+if [ -n "$api_project_id" ]; then
+  printf '   Enabling required APIs on %s...\n' "$api_project_id"
+  all_apis_ok=true
+  for api in serviceusage.googleapis.com admin.googleapis.com chromemanagement.googleapis.com cloudidentity.googleapis.com; do
+    if ! gcloud services enable "$api" --project "$api_project_id" 2>/dev/null; then
+      warn "   Could not enable $api (the agent will retry at runtime)."
+      all_apis_ok=false
+    fi
+  done
+  if [ "$all_apis_ok" = true ]; then
+    ok 'All required APIs enabled.'
+  fi
 fi
 
 # ---------- 7. Gemini CLI configuration ----------------------------------------

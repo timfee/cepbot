@@ -317,6 +317,16 @@ if [ "$project_id" = "(unset)" ]; then
 fi
 
 if [ -n "$project_id" ]; then
+  # Verify the project actually exists before trying to set it as quota
+  # project.  set-quota-project validates against the API and prints a
+  # scary INVALID_ARGUMENT error if the project is deleted or inaccessible.
+  if ! gcloud projects describe "$project_id" >/dev/null 2>&1; then
+    warn "Project '$project_id' is not accessible (may be deleted or restricted)."
+    project_id=""
+  fi
+fi
+
+if [ -n "$project_id" ]; then
   if gcloud auth application-default set-quota-project "$project_id" 2>/dev/null; then
     ok "Quota project: $project_id"
   else

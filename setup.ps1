@@ -330,7 +330,20 @@ function Invoke-CepbotSetup {
     }
 
     if ($projectId) {
-        Invoke-Native { gcloud auth application-default set-quota-project $projectId }
+        # Verify the project actually exists before trying to set it as quota
+        # project.  set-quota-project validates against the API and prints a
+        # scary INVALID_ARGUMENT error if the project is deleted, inaccessible,
+        # or the user lacks serviceusage.services.use permission.
+        $describeOut = Invoke-Native { gcloud projects describe $projectId } | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Project '$projectId' is not accessible (may be deleted or restricted)."
+            Write-Warn 'The agent will attempt to create or resolve a project on first use.'
+            $projectId = $null
+        }
+    }
+
+    if ($projectId) {
+        $null = Invoke-Native { gcloud auth application-default set-quota-project $projectId }
         if ($LASTEXITCODE -eq 0) {
             Write-Ok "Quota project: $projectId"
         }

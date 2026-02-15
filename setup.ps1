@@ -370,14 +370,53 @@ function Invoke-CepbotSetup {
         }
     }
 
+    # Helper: verify the ADC file contains the expected quota_project_id.
+    function Test-AdcQuotaProject {
+        param([string]$ExpectedId)
+        if (-not (Test-Path $adcFile)) { return $false }
+        try {
+            $json = Get-Content $adcFile -Raw | ConvertFrom-Json
+            return ($json.quota_project_id -eq $ExpectedId)
+        }
+        catch { return $false }
+    }
+
+    # Helper: directly patch quota_project_id into the ADC JSON file when
+    # the gcloud CLI command fails.
+    function Set-AdcQuotaProjectDirect {
+        param([string]$Id)
+        if (-not (Test-Path $adcFile)) { return $false }
+        try {
+            $json = Get-Content $adcFile -Raw | ConvertFrom-Json
+            if ($null -eq (Get-Member -InputObject $json -Name 'quota_project_id' -MemberType NoteProperty)) {
+                $json | Add-Member -NotePropertyName 'quota_project_id' -NotePropertyValue $Id
+            }
+            else {
+                $json.quota_project_id = $Id
+            }
+            $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($adcFile, ($json | ConvertTo-Json -Depth 10), $utf8NoBom)
+            return $true
+        }
+        catch { return $false }
+    }
+
     # --- 6c. Try to persist the project as ADC quota project ---
     if ($projectId -and -not $quotaProjectSet) {
         $null = Invoke-Native { gcloud auth application-default set-quota-project $projectId }
-        if ($LASTEXITCODE -eq 0) {
+        if (Test-AdcQuotaProject $projectId) {
             Write-Ok "Quota project: $projectId"
             $quotaProjectSet = $true
         }
-        # If set-quota-project fails, we'll try creating a new project below
+        else {
+            Write-Warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
+            if (Set-AdcQuotaProjectDirect $projectId) {
+                if (Test-AdcQuotaProject $projectId) {
+                    Write-Ok "Quota project (patched): $projectId"
+                    $quotaProjectSet = $true
+                }
+            }
+        }
     }
 
     # --- 6d. No usable project — create one (mirrors bootstrap.ts) ---
@@ -392,10 +431,20 @@ function Invoke-CepbotSetup {
 
         $null = Invoke-Native { gcloud projects create $newProjectId }
         if ($LASTEXITCODE -eq 0) {
+            $projectId = $newProjectId
             $null = Invoke-Native { gcloud auth application-default set-quota-project $newProjectId }
-            if ($LASTEXITCODE -eq 0) {
+            if (Test-AdcQuotaProject $newProjectId) {
                 Write-Ok "Created and set quota project: $newProjectId"
                 $quotaProjectSet = $true
+            }
+            else {
+                Write-Warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
+                if (Set-AdcQuotaProjectDirect $newProjectId) {
+                    if (Test-AdcQuotaProject $newProjectId) {
+                        Write-Ok "Created and set quota project (patched): $newProjectId"
+                        $quotaProjectSet = $true
+                    }
+                }
             }
         }
     }

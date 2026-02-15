@@ -5,7 +5,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -194,12 +194,41 @@ export async function getQuotaProject(): Promise<string | null> {
 }
 
 /**
- * Sets the ADC quota project via the gcloud CLI.
+ * Writes quota_project_id directly into the ADC JSON file.
+ * Used as a fallback when the gcloud CLI command fails.
+ */
+async function patchADCQuotaProject(projectId: string): Promise<void> {
+  const filePath = adcPath();
+  const content = await readFile(filePath, "utf8");
+  const json: Record<string, unknown> = JSON.parse(content);
+  json.quota_project_id = projectId;
+  await writeFile(filePath, JSON.stringify(json, null, 2), "utf8");
+}
+
+/**
+ * Sets the ADC quota project.  Tries the gcloud CLI first, then falls
+ * back to writing the ADC JSON file directly.  Verifies the write by
+ * re-reading the file — throws if neither approach succeeds.
  */
 export async function setQuotaProject(projectId: string): Promise<void> {
-  execFileSync(
-    "gcloud",
-    ["auth", "application-default", "set-quota-project", projectId],
-    SHELL_OPTS
-  );
+  // Try gcloud CLI first (canonical approach).
+  try {
+    execFileSync(
+      "gcloud",
+      ["auth", "application-default", "set-quota-project", projectId],
+      SHELL_OPTS
+    );
+  } catch {
+    // gcloud CLI failed — fall back to direct file write.
+    await patchADCQuotaProject(projectId);
+  }
+
+  // Verify the value actually landed in the file.
+  const persisted = await getQuotaProject();
+  if (persisted !== projectId) {
+    const actual = persisted ?? "(none)";
+    throw new Error(
+      `Failed to persist quota project to ADC file. Expected "${projectId}", got "${actual}".`
+    );
+  }
 }

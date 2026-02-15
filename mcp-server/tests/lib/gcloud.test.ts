@@ -6,6 +6,7 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
+  writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("node:os", () => ({
@@ -13,7 +14,7 @@ vi.mock("node:os", () => ({
 }));
 
 const { execFileSync } = await import("node:child_process");
-const { readFile } = await import("node:fs/promises");
+const { readFile, writeFile } = await import("node:fs/promises");
 const {
   checkGcloudInstalled,
   getADCScopes,
@@ -27,6 +28,7 @@ describe("gcloud", () => {
   beforeEach(() => {
     vi.mocked(execFileSync).mockReset();
     vi.mocked(readFile).mockReset();
+    vi.mocked(writeFile).mockReset().mockResolvedValue(undefined);
   });
 
   function mockExecFileSuccess(): void {
@@ -193,13 +195,64 @@ describe("gcloud", () => {
   });
 
   describe("setQuotaProject", () => {
-    it("calls gcloud to set quota project", async () => {
+    it("calls gcloud CLI and verifies the file was updated", async () => {
       mockExecFileSuccess();
+      // After gcloud CLI writes the file, readFile returns the updated content
+      vi.mocked(readFile).mockResolvedValue(
+        JSON.stringify({ quota_project_id: "my-project" })
+      );
+
       await setQuotaProject("my-project");
+
       expect(execFileSync).toHaveBeenCalledWith(
         "gcloud",
         ["auth", "application-default", "set-quota-project", "my-project"],
         { shell: true }
+      );
+    });
+
+    it("falls back to direct file write when gcloud CLI fails", async () => {
+      // gcloud CLI fails
+      mockExecFileFailure("gcloud not found");
+
+      // readFile returns ADC without quota_project_id (for patchADCQuotaProject to read),
+      // then returns the patched version (for verification)
+      let readCount = 0;
+      vi.mocked(readFile).mockImplementation(async () => {
+        readCount += 1;
+        if (readCount === 1) {
+          // patchADCQuotaProject reads the file
+          return JSON.stringify({ type: "authorized_user", client_id: "xxx" });
+        }
+        // verification read after writeFile
+        return JSON.stringify({
+          type: "authorized_user",
+          client_id: "xxx",
+          quota_project_id: "my-project",
+        });
+      });
+
+      await setQuotaProject("my-project");
+
+      // writeFile was called with the patched JSON
+      expect(writeFile).toHaveBeenCalledWith(
+        expect.stringContaining("application_default_credentials.json"),
+        expect.stringContaining('"quota_project_id": "my-project"'),
+        "utf8"
+      );
+    });
+
+    it("throws when neither gcloud CLI nor direct write succeeds", async () => {
+      mockExecFileFailure("gcloud not found");
+
+      // patchADCQuotaProject reads the file and writes it
+      vi.mocked(readFile)
+        .mockResolvedValueOnce(JSON.stringify({ type: "authorized_user" }))
+        // verification read still shows no quota_project_id
+        .mockResolvedValueOnce(JSON.stringify({ type: "authorized_user" }));
+
+      await expect(setQuotaProject("my-project")).rejects.toThrow(
+        "Failed to persist quota project"
       );
     });
   });

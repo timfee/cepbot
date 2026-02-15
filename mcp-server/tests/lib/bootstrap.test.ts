@@ -6,6 +6,10 @@ vi.mock("@lib/api/admin-sdk", () => ({
   getCustomerId: vi.fn(),
 }));
 
+vi.mock("@lib/api/fetch", () => ({
+  setFallbackQuotaProject: vi.fn(),
+}));
+
 vi.mock("@lib/apis", () => ({
   ensureApisEnabled: vi.fn().mockResolvedValue([]),
 }));
@@ -31,6 +35,7 @@ vi.mock("@lib/projects", () => ({
 }));
 
 const { getCustomerId } = await import("@lib/api/admin-sdk");
+const { setFallbackQuotaProject } = await import("@lib/api/fetch");
 const { ensureApisEnabled } = await import("@lib/apis");
 const { verifyADCCredentials, verifyTokenScopes } = await import("@lib/auth");
 const { checkGCP } = await import("@lib/gcp");
@@ -70,6 +75,7 @@ describe("bootstrap", () => {
     vi.mocked(getCustomerId).mockReset().mockResolvedValue({ id: "C012345" });
     vi.mocked(createProject).mockReset();
     vi.mocked(setQuotaProject).mockReset().mockResolvedValue();
+    vi.mocked(setFallbackQuotaProject).mockReset();
   });
 
   it("succeeds with all checks passing", async () => {
@@ -341,5 +347,60 @@ describe("bootstrap", () => {
     expectFailure(result);
     expect(result.error.agentAction).toBeTruthy();
     expect(result.error.agentAction.length).toBeGreaterThan(0);
+  });
+
+  it("calls setFallbackQuotaProject with resolved project ID", async () => {
+    vi.mocked(getQuotaProject).mockResolvedValue("my-project");
+
+    await bootstrap();
+
+    expect(setFallbackQuotaProject).toHaveBeenCalledWith("my-project");
+  });
+
+  it("calls setFallbackQuotaProject BEFORE ensureApisEnabled", async () => {
+    // This is the critical ordering test: the fallback must be set
+    // before any API calls happen inside bootstrap, otherwise
+    // ensureApisEnabled and prefetchCustomerId won't have the header.
+    const callOrder: string[] = [];
+
+    vi.mocked(setFallbackQuotaProject).mockImplementation(() => {
+      callOrder.push("setFallbackQuotaProject");
+    });
+    vi.mocked(ensureApisEnabled).mockImplementation(async () => {
+      callOrder.push("ensureApisEnabled");
+      return [];
+    });
+
+    await bootstrap();
+
+    expect(callOrder.indexOf("setFallbackQuotaProject")).toBeLessThan(
+      callOrder.indexOf("ensureApisEnabled")
+    );
+  });
+
+  it("calls setFallbackQuotaProject even when setQuotaProject fails (gcloud-config path)", async () => {
+    // This is the exact scenario that caused the 403: gcloud config
+    // returns a project, but setQuotaProject fails to persist it.
+    // Bootstrap must still call setFallbackQuotaProject so that
+    // googleFetch sends the x-goog-user-project header.
+    vi.mocked(getQuotaProject).mockResolvedValue(null);
+    vi.mocked(getGcloudProject).mockReturnValue("config-proj");
+    vi.mocked(setQuotaProject).mockRejectedValue(new Error("gcloud failed"));
+
+    const result = await bootstrap();
+
+    expect(result).toMatchObject({ ok: true, projectId: "config-proj" });
+    expect(setFallbackQuotaProject).toHaveBeenCalledWith("config-proj");
+  });
+
+  it("does NOT call setFallbackQuotaProject when quota resolution fails", async () => {
+    vi.mocked(getQuotaProject).mockResolvedValue(null);
+    vi.mocked(getGcloudProject).mockReturnValue(null);
+    vi.mocked(createProject).mockRejectedValue(new Error("create failed"));
+
+    const result = await bootstrap();
+
+    expectFailure(result);
+    expect(setFallbackQuotaProject).not.toHaveBeenCalled();
   });
 });

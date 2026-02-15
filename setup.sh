@@ -335,13 +335,11 @@ if [ -z "$project_id" ]; then
   fi
 fi
 
-# Helper: directly patch quota_project_id into the ADC JSON file when the
-# gcloud CLI command fails (e.g. permission issues, buggy SDK builds).
+# Helper: directly patch quota_project_id into the ADC JSON file when
+# the gcloud CLI command fails.
 patch_adc_quota_project() {
   local pid="$1"
   if [ ! -f "$adc_file" ]; then return 1; fi
-  # Use a simple sed replacement / insertion.  The ADC file is small,
-  # machine-generated JSON — this is safe.
   if grep -q '"quota_project_id"' "$adc_file" 2>/dev/null; then
     sed -i.bak "s/\"quota_project_id\"[[:space:]]*:[[:space:]]*\"[^\"]*\"/\"quota_project_id\": \"${pid}\"/" "$adc_file" && rm -f "${adc_file}.bak"
   else
@@ -350,7 +348,7 @@ patch_adc_quota_project() {
   fi
 }
 
-# Helper: verify the ADC file actually contains the expected quota_project_id.
+# Helper: verify the ADC file contains the expected quota_project_id.
 verify_adc_quota_project() {
   local pid="$1"
   if [ ! -f "$adc_file" ]; then return 1; fi

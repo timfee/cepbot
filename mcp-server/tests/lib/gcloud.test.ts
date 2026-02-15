@@ -251,7 +251,11 @@ describe("gcloud", () => {
 
     afterEach(() => {
       Object.defineProperty(process, "platform", { value: originalPlatform });
-      process.env.PATH = savedPath;
+      if (savedPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = savedPath;
+      }
       if (savedLocalAppData === undefined) {
         delete process.env.LOCALAPPDATA;
       } else {
@@ -425,6 +429,40 @@ describe("gcloud", () => {
       await expect(setQuotaProject("my-project")).rejects.toThrow(
         "Failed to persist quota project"
       );
+    });
+
+    it("preserves gcloud CLI error as cause when verification fails", async () => {
+      mockExecFileFailure("gcloud not found");
+
+      vi.mocked(readFile)
+        .mockResolvedValueOnce(JSON.stringify({ type: "authorized_user" }))
+        .mockResolvedValueOnce(JSON.stringify({ type: "authorized_user" }));
+
+      try {
+        await setQuotaProject("my-project");
+        expect.unreachable("should have thrown");
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(Error);
+        const err = error as Error;
+        expect(err.cause).toBeInstanceOf(Error);
+        expect((err.cause as Error).message).toBe("gcloud not found");
+      }
+    });
+
+    it("has no cause when gcloud CLI succeeds but verification fails", async () => {
+      mockExecFileSuccess();
+      // gcloud CLI "succeeded" but the file doesn't reflect the change
+      vi.mocked(readFile).mockResolvedValue(
+        JSON.stringify({ type: "authorized_user" })
+      );
+
+      try {
+        await setQuotaProject("my-project");
+        expect.unreachable("should have thrown");
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).cause).toBeUndefined();
+      }
     });
   });
 });

@@ -4,6 +4,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -87,13 +88,58 @@ async function readADCFile(): Promise<ADCCredentials | null> {
 }
 
 /**
+ * Well-known Google Cloud SDK install locations on Windows.  Checked as a
+ * fallback when gcloud is not found on PATH — common after a fresh winget
+ * install where the parent shell's PATH hasn't propagated to child
+ * processes.
+ */
+function findGcloudOnWindows(): string | null {
+  if (process.platform !== "win32") return null;
+
+  const bases = [
+    process.env.LOCALAPPDATA,
+    process.env.ProgramFiles,
+    process.env["ProgramFiles(x86)"],
+    process.env.PROGRAMW6432,
+  ];
+
+  for (const base of bases) {
+    if (!base) continue;
+    const binDir = join(base, "Google", "Cloud SDK", "google-cloud-sdk", "bin");
+    if (existsSync(join(binDir, "gcloud.cmd"))) {
+      return binDir;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Checks whether the gcloud CLI is installed and reachable on PATH.
+ * On Windows, falls back to well-known install locations if PATH lookup fails.
  */
 export async function checkGcloudInstalled(): Promise<GcloudResult> {
   try {
     execFileSync("gcloud", ["--version"], SHELL_OPTS);
     return { ok: true };
   } catch (error: unknown) {
+    // On Windows, gcloud may be installed but not on the inherited PATH
+    // (e.g. fresh winget install where the shell environment wasn't
+    // refreshed before launching Gemini CLI).  Check well-known install
+    // locations and prepend to PATH if found.
+    if (process.platform === "win32") {
+      const gcloudDir = findGcloudOnWindows();
+      if (gcloudDir) {
+        process.env.PATH = `${gcloudDir};${process.env.PATH ?? ""}`;
+        try {
+          execFileSync("gcloud", ["--version"], SHELL_OPTS);
+          return { ok: true };
+        } catch {
+          // Fall through to original error
+        }
+      }
+    }
+
     const reason = errorMessage(error);
     return { cause: error, ok: false, reason };
   }

@@ -238,6 +238,23 @@ function Invoke-CepbotSetup {
     }
 
     if (-not (Test-Command 'gcloud')) {
+        # Update-SessionPath reads the registry, but the Google Cloud SDK
+        # installer (especially in --silent mode via winget) may not have
+        # written to the registry yet.  Check well-known install locations.
+        $gcloudSearchPaths = @(
+            "$env:LOCALAPPDATA\Google\Cloud SDK\google-cloud-sdk\bin"
+            "$env:ProgramFiles\Google\Cloud SDK\google-cloud-sdk\bin"
+            "${env:ProgramFiles(x86)}\Google\Cloud SDK\google-cloud-sdk\bin"
+        )
+        foreach ($p in $gcloudSearchPaths) {
+            if (Test-Path (Join-Path $p 'gcloud.cmd')) {
+                $env:Path = "$p;$env:Path"
+                break
+            }
+        }
+    }
+
+    if (-not (Test-Command 'gcloud')) {
         Write-Fail 'gcloud is still not on PATH after install.'
         Write-Host '   Close this terminal, open a new one, and re-run the script.' -ForegroundColor Yellow
         return
@@ -317,42 +334,109 @@ function Invoke-CepbotSetup {
 
     Write-Step '6/8  GCP quota project'
 
-    # Set quota project to avoid "quota exceeded" errors on API calls.
-    # Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts.
+    # Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts:
+    #   1. Check ADC file for existing quota_project_id
+    #   2. Fall back to gcloud config project
+    #   3. Try to set it as the ADC quota project
+    #   4. If no project exists anywhere, create one
     $projectId = $null
-    $projectLines = Invoke-Native { gcloud config get-value project } | Out-String
-    foreach ($line in $projectLines -split '\r?\n') {
-        $l = $line.Trim()
-        if ($l -and $l -ne '(unset)' -and $l -notmatch '^(WARNING|ERROR)') {
-            $projectId = $l
-            break
+    $quotaProjectSet = $false
+
+    # --- 6a. Check ADC file for existing quota_project_id ---
+    $adcFile = Join-Path (Join-Path $env:APPDATA 'gcloud') 'application_default_credentials.json'
+    if (Test-Path $adcFile) {
+        try {
+            $adcJson = Get-Content $adcFile -Raw | ConvertFrom-Json
+            if ($adcJson.quota_project_id) {
+                $projectId = $adcJson.quota_project_id
+                Write-Ok "Quota project (from ADC): $projectId"
+                $quotaProjectSet = $true
+            }
+        }
+        catch {
+            # ADC file corrupt or unreadable — continue to next fallback
         }
     }
 
-    if ($projectId) {
-        # Verify the project actually exists before trying to set it as quota
-        # project.  set-quota-project validates against the API and prints a
-        # scary INVALID_ARGUMENT error if the project is deleted, inaccessible,
-        # or the user lacks serviceusage.services.use permission.
-        $describeOut = Invoke-Native { gcloud projects describe $projectId } | Out-String
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Project '$projectId' is not accessible (may be deleted or restricted)."
-            Write-Warn 'The agent will attempt to create or resolve a project on first use.'
-            $projectId = $null
+    # --- 6b. Fall back to gcloud config project ---
+    if (-not $projectId) {
+        $projectLines = Invoke-Native { gcloud config get-value project } | Out-String
+        foreach ($line in $projectLines -split '\r?\n') {
+            $l = $line.Trim()
+            if ($l -and $l -ne '(unset)' -and $l -notmatch '^(WARNING|ERROR)') {
+                $projectId = $l
+                break
+            }
         }
     }
 
-    if ($projectId) {
+    # --- 6c. Try to persist the project as ADC quota project ---
+    if ($projectId -and -not $quotaProjectSet) {
         $null = Invoke-Native { gcloud auth application-default set-quota-project $projectId }
         if ($LASTEXITCODE -eq 0) {
             Write-Ok "Quota project: $projectId"
+            $quotaProjectSet = $true
         }
-        else {
-            Write-Warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
+        # If set-quota-project fails, we'll try creating a new project below
+    }
+
+    # --- 6d. No usable project — create one (mirrors bootstrap.ts) ---
+    if (-not $quotaProjectSet) {
+        Write-Host '   No usable quota project found. Creating one...'
+        $consonants = 'bcdfghjklmnpqrstvwxyz'
+        $vowels = 'aeiou'
+        $rng = [System.Random]::new()
+        $cvc1 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
+        $cvc2 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
+        $newProjectId = "mcp-$cvc1-$cvc2"
+
+        $null = Invoke-Native { gcloud projects create $newProjectId }
+        if ($LASTEXITCODE -eq 0) {
+            $null = Invoke-Native { gcloud auth application-default set-quota-project $newProjectId }
+            if ($LASTEXITCODE -eq 0) {
+                Write-Ok "Created and set quota project: $newProjectId"
+                $quotaProjectSet = $true
+            }
         }
     }
-    else {
-        Write-Warn 'No GCP project configured. The agent will attempt to create one on first use.'
+
+    if (-not $quotaProjectSet) {
+        Write-Warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
+    }
+
+    # --- 6e. Enable required APIs (mirrors bootstrap.ts ensureApisEnabled) ---
+    # Resolve the final project ID from ADC (may have been set in 6c or 6d).
+    $apiProjectId = $null
+    if ($quotaProjectSet) {
+        if (Test-Path $adcFile) {
+            try {
+                $adcRefresh = Get-Content $adcFile -Raw | ConvertFrom-Json
+                $apiProjectId = $adcRefresh.quota_project_id
+            }
+            catch { }
+        }
+        if (-not $apiProjectId) { $apiProjectId = $projectId }
+    }
+
+    if ($apiProjectId) {
+        $requiredApis = @(
+            'serviceusage.googleapis.com'
+            'admin.googleapis.com'
+            'chromemanagement.googleapis.com'
+            'cloudidentity.googleapis.com'
+        )
+        Write-Host "   Enabling required APIs on $apiProjectId..."
+        $allApisOk = $true
+        foreach ($api in $requiredApis) {
+            $null = Invoke-Native { gcloud services enable $api --project $apiProjectId }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "   Could not enable $api (the agent will retry at runtime)."
+                $allApisOk = $false
+            }
+        }
+        if ($allApisOk) {
+            Write-Ok 'All required APIs enabled.'
+        }
     }
 
     # ------ 7. Gemini CLI configuration ----------------------------------------
@@ -449,7 +533,10 @@ function Invoke-CepbotSetup {
 
     } # end try
     finally {
-        Set-Location -Path $originalDir
+        # Always land in the user's home directory.  When invoked via
+        # 'irm … | iex' from an elevated prompt, $originalDir is typically
+        # C:\WINDOWS\system32 — not a useful working directory for Gemini CLI.
+        Set-Location -Path $HOME
     }
 }
 

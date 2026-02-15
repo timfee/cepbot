@@ -12,7 +12,7 @@ const MockGoogleAuth = vi.mocked(GoogleAuth);
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-const { GoogleApiError, resetCachedAuth, googleFetch } =
+const { GoogleApiError, resetCachedAuth, setFallbackQuotaProject, googleFetch } =
   await import("@lib/api/fetch");
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -190,6 +190,73 @@ describe("fetch", () => {
         name: "GoogleApiError",
         status: 404,
       });
+    });
+
+    it("sends NO x-goog-user-project header when ADC has no quota project and no fallback is set (the old broken behavior)", async () => {
+      // This reproduces the exact 403 failure: ADC has no quota_project_id,
+      // setQuotaProject failed silently, and no fallback was configured.
+      mockADC("adc-token"); // no quotaProjectId
+      mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+      await googleFetch("https://admin.googleapis.com/something");
+
+      // Without the fallback, the header is absent → Google returns 403
+      const [, fetchOpts] = mockFetch.mock.calls[0];
+      expect(fetchOpts.headers).not.toHaveProperty("x-goog-user-project");
+    });
+
+    it("uses fallbackQuotaProject when ADC client has no quotaProjectId", async () => {
+      // This proves the fix: bootstrap resolved "my-project" and called
+      // setFallbackQuotaProject, so googleFetch sends the header even
+      // though the ADC file / GoogleAuth client has no quota_project_id.
+      mockADC("adc-token"); // no quotaProjectId on client
+      setFallbackQuotaProject("bootstrap-resolved-project");
+      mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+      await googleFetch("https://admin.googleapis.com/something");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://admin.googleapis.com/something",
+        expect.objectContaining({
+          headers: {
+            Authorization: "Bearer adc-token",
+            "x-goog-user-project": "bootstrap-resolved-project",
+          },
+        })
+      );
+    });
+
+    it("prefers ADC client quotaProjectId over fallback", async () => {
+      // If the ADC file WAS updated, use that value (it's more authoritative).
+      mockADC("adc-token", "adc-project");
+      setFallbackQuotaProject("fallback-project");
+      mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+      await googleFetch("https://admin.googleapis.com/something");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://admin.googleapis.com/something",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            "x-goog-user-project": "adc-project",
+          }),
+        })
+      );
+    });
+
+    it("resetCachedAuth clears the fallback quota project", async () => {
+      mockADC("adc-token"); // no quotaProjectId
+      setFallbackQuotaProject("some-project");
+      resetCachedAuth();
+
+      // After reset, both the cached auth AND the fallback are gone.
+      mockADC("adc-token"); // re-mock since reset clears GoogleAuth
+      mockFetch.mockResolvedValue(jsonResponse({ ok: true }));
+
+      await googleFetch("https://admin.googleapis.com/something");
+
+      const [, fetchOpts] = mockFetch.mock.calls[0];
+      expect(fetchOpts.headers).not.toHaveProperty("x-goog-user-project");
     });
 
     it("reuses cached GoogleAuth instance", async () => {

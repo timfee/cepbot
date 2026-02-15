@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@lib/api/fetch", () => ({
   resetCachedAuth: vi.fn(),
+  setFallbackQuotaProject: vi.fn(),
 }));
 
 vi.mock("@lib/apis", () => ({
@@ -22,7 +23,7 @@ vi.mock("@tools/guarded-tool-call", () => ({
   customerIdCache: { clear: vi.fn(), get: vi.fn(), set: vi.fn() },
 }));
 
-const { resetCachedAuth } = await import("@lib/api/fetch");
+const { resetCachedAuth, setFallbackQuotaProject } = await import("@lib/api/fetch");
 const { bootstrap } = await import("@lib/bootstrap");
 const { formatDegradedModeError, setServerDegraded, setServerHealthy } =
   await import("@lib/server-state");
@@ -52,6 +53,7 @@ describe("retry-bootstrap", () => {
     vi.mocked(setServerDegraded).mockReset();
     vi.mocked(customerIdCache.clear).mockReset();
     vi.mocked(customerIdCache.set).mockReset();
+    vi.mocked(setFallbackQuotaProject).mockReset();
     vi.mocked(formatDegradedModeError)
       .mockReset()
       .mockReturnValue("formatted error");
@@ -104,6 +106,7 @@ describe("retry-bootstrap", () => {
 
     const result = await registeredHandler();
 
+    expect(setFallbackQuotaProject).toHaveBeenCalledWith("proj-1");
     expect(setServerHealthy).toHaveBeenCalledWith("proj-1", "us-central1");
     expect(customerIdCache.set).toHaveBeenCalledWith("C123");
     expect(result).toStrictEqual({

@@ -23,7 +23,8 @@ vi.mock("@tools/guarded-tool-call", () => ({
   customerIdCache: { clear: vi.fn(), get: vi.fn(), set: vi.fn() },
 }));
 
-const { resetCachedAuth, setFallbackQuotaProject } = await import("@lib/api/fetch");
+const { resetCachedAuth, setFallbackQuotaProject } =
+  await import("@lib/api/fetch");
 const { bootstrap } = await import("@lib/bootstrap");
 const { formatDegradedModeError, setServerDegraded, setServerHealthy } =
   await import("@lib/server-state");

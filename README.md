@@ -210,11 +210,30 @@ and detects GCP metadata when running on Google Cloud infrastructure.
 
 ## Troubleshooting
 
+**"running scripts is disabled on this system" when running `gemini`**
+
+The Windows execution policy is blocking npm's `.ps1` shim. The setup script
+sets `RemoteSigned` for your user automatically, but group policy may override
+it. Fix manually:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+```
+
+**`/extensions list` shows "No extensions installed" after setup**
+
+The Gemini CLI extension install can silently fail if stdin is exhausted (e.g.
+when running via `irm | iex`). Re-install manually:
+
+```bash
+gemini extensions install https://github.com/timfee/cepbot
+```
+
 **"API not enabled" or "quota exceeded" errors during setup**
 
 The gcloud CLI must be authenticated before the setup script can enable APIs or
-create projects. Re-run the setup script — it now prompts for gcloud CLI auth
-before ADC auth.
+create projects. Re-run the setup script — it prompts for gcloud CLI auth before
+ADC auth.
 
 **"Could not enable \<api\>" warnings**
 
@@ -224,22 +243,25 @@ one during setup.
 
 **MCP server starts in degraded mode**
 
-Check that ADC credentials exist and have the correct scopes:
+Check that ADC credentials exist and have a `quota_project_id`:
 
 ```bash
-# Linux/macOS — verify ADC file exists
+# Linux/macOS
 cat ~/.config/gcloud/application_default_credentials.json
 ```
 
 ```powershell
-# Windows — verify ADC file exists
+# Windows
 Get-Content "$env:APPDATA\gcloud\application_default_credentials.json"
 ```
 
+If `quota_project_id` is missing, set one:
+
 ```bash
-# Verify it has a quota_project_id. If missing, set one:
 gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 ```
+
+If scopes are wrong, re-authenticate ADC (see [Authentication](#authentication)).
 
 **Two browser prompts during setup**
 

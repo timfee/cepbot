@@ -227,12 +227,17 @@ one during setup.
 Check that ADC credentials exist and have the correct scopes:
 
 ```bash
-# Verify ADC file exists
-cat ~/.config/gcloud/application_default_credentials.json   # Linux/macOS
-cat %APPDATA%\gcloud\application_default_credentials.json   # Windows
+# Linux/macOS — verify ADC file exists
+cat ~/.config/gcloud/application_default_credentials.json
+```
 
-# Verify it has a quota_project_id
-# If missing, set one:
+```powershell
+# Windows — verify ADC file exists
+Get-Content "$env:APPDATA\gcloud\application_default_credentials.json"
+```
+
+```bash
+# Verify it has a quota_project_id. If missing, set one:
 gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 ```
 

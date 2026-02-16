@@ -425,6 +425,11 @@ if [ -n "$project_id" ]; then
   fi
 fi
 
+if [ "$needs_selection" = true ] && [ "$NONINTERACTIVE" = "1" ]; then
+  warn 'No usable project found in non-interactive mode. Set one with: gcloud config set project YOUR_PROJECT_ID'
+  needs_selection=false
+fi
+
 if [ "$needs_selection" = true ]; then
   echo '   Fetching your GCP projects...'
   project_list_raw="$(gcloud projects list --format='value(projectId,name)' --sort-by=~createTime --limit=20 2>/dev/null || true)"

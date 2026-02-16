@@ -158,7 +158,13 @@ export async function enableApiWithRetry(
   skipQuotaProject?: boolean
 ): Promise<void> {
   try {
-    await checkAndEnableApi(projectId, api, accessToken, progress, skipQuotaProject);
+    await checkAndEnableApi(
+      projectId,
+      api,
+      accessToken,
+      progress,
+      skipQuotaProject
+    );
   } catch {
     progress?.({
       data: `Failed to check/enable ${api}, retrying in 1s...`,
@@ -168,7 +174,13 @@ export async function enableApiWithRetry(
     await delay(RETRY.ENABLE_RETRY_MS);
 
     try {
-      await checkAndEnableApi(projectId, api, accessToken, progress, skipQuotaProject);
+      await checkAndEnableApi(
+        projectId,
+        api,
+        accessToken,
+        progress,
+        skipQuotaProject
+      );
     } catch (retryError: unknown) {
       const message = `Failed to ensure API [${api}] is enabled after retry. Please check manually.`;
       progress?.({ data: message, level: "error" });

@@ -136,7 +136,12 @@ describe("apis", () => {
         .mockResolvedValue("ENABLED");
 
       await enableApiWithRetry("proj", "some.api", "tok");
-      expect(enableService).toHaveBeenCalledWith("proj", "some.api", "tok", undefined);
+      expect(enableService).toHaveBeenCalledWith(
+        "proj",
+        "some.api",
+        "tok",
+        undefined
+      );
     });
 
     it("retries once on first failure then succeeds", async () => {

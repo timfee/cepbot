@@ -27,6 +27,12 @@ function Invoke-CepbotSetup {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # Tell the console to decode native-command output as UTF-8.
+    # Without this, tools like winget emit UTF-8 (e.g. progress-bar
+    # block characters █▒) but PowerShell decodes the bytes using the
+    # system OEM code page (usually CP437), producing mojibake like ΓûêΓûÆ.
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
     # Remember where the user started so we can restore it when we're done.
     # Tool installers (winget, gcloud, etc.) can silently change $PWD —
     # without this the user may end up in C:\Windows\System32.
@@ -600,6 +606,11 @@ function Invoke-CepbotSetup {
         }
     }
 
+    # ------ reset CWD -----------------------------------------------------------
+    # Winget / gcloud installers can silently change $PWD to system32.
+    # Reset to $HOME now so the Gemini CLI steps don't scan system dirs.
+    Set-Location -Path $HOME
+
     # ------ 7. Gemini CLI configuration ----------------------------------------
 
     Write-Step '7/8  Gemini CLI configuration'
@@ -650,17 +661,27 @@ function Invoke-CepbotSetup {
 
     # Uninstall first if already present — reinstalling over an existing
     # extension crashes the Gemini CLI with a libuv assertion failure.
-    $null = Invoke-Native { gemini extensions uninstall chrome-enterprise-premium }
-    # Ignore exit code — uninstall fails harmlessly if not installed.
+    #
+    # Gemini commands are run directly (not via Invoke-Native) because
+    # Invoke-Native's 2>&1 | ForEach-Object pipeline makes stdout a pipe
+    # instead of a console.  The Gemini CLI checks isTTY and throws
+    # FatalAuthenticationError when it detects a non-interactive terminal.
+    #
+    # 2>$null suppresses Node deprecation warnings and EPERM noise from
+    # directory scanning.  Failures are expected and ignored.
+    $ErrorActionPreference = 'Continue'
+    gemini extensions uninstall chrome-enterprise-premium 2>$null | Out-Null
+    $ErrorActionPreference = 'Stop'
 
     Write-Host '   Registering extension...'
-    # Pipe "Y" to auto-confirm the install prompt. The Gemini CLI asks
-    # "Do you want to continue? [Y/n]" which reads from stdin — without
-    # this, piped/non-interactive sessions get EOF and silently skip.
+    # Pipe "Y" to auto-confirm the "Do you want to continue? [Y/n]" prompt.
     # Exit codes are unreliable (libuv assertion crash returns random
     # negative codes on success), so we verify via the enablement file.
-    Invoke-Native { 'Y' | gemini extensions install https://github.com/timfee/cepbot }
+    # 2>$null suppresses stderr noise; stdout stays on the console TTY.
+    $ErrorActionPreference = 'Continue'
+    'Y' | gemini extensions install https://github.com/timfee/cepbot 2>$null
     $installExitCode = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
 
     if ($installExitCode -eq 41) {
         # Exit code 41 = FatalAuthenticationError.  Launch gemini
@@ -680,7 +701,9 @@ function Invoke-CepbotSetup {
         }
         Write-Host ''
         Write-Host '   Retrying extension install...'
-        Invoke-Native { 'Y' | gemini extensions install https://github.com/timfee/cepbot }
+        $ErrorActionPreference = 'Continue'
+        'Y' | gemini extensions install https://github.com/timfee/cepbot 2>$null
+        $ErrorActionPreference = 'Stop'
     }
 
     # Verify via the enablement file — exit codes are unreliable.

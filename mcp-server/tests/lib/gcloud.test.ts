@@ -1,3 +1,5 @@
+import { join, sep } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:child_process", () => ({
@@ -175,6 +177,11 @@ describe("gcloud", () => {
       mockExecFileFailure("command not found");
       expect(getGcloudProject()).toBeNull();
     });
+
+    it("returns null when output is not a valid GCP project ID", () => {
+      vi.mocked(execFileSync).mockReturnValue("python.exe : (unset)\n");
+      expect(getGcloudProject()).toBeNull();
+    });
   });
 
   describe("getQuotaProject", () => {
@@ -197,6 +204,14 @@ describe("gcloud", () => {
       const project = await getQuotaProject();
       expect(project).toBeNull();
     });
+
+    it("returns null when quota_project_id is not a valid GCP project ID", async () => {
+      vi.mocked(readFile).mockResolvedValue(
+        JSON.stringify({ quota_project_id: "python.exe : (unset)" })
+      );
+      const project = await getQuotaProject();
+      expect(project).toBeNull();
+    });
   });
 
   describe("adcPath (Windows)", () => {
@@ -216,13 +231,13 @@ describe("gcloud", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
       process.env.APPDATA = "/fake/appdata";
       vi.mocked(readFile).mockResolvedValue(
-        JSON.stringify({ quota_project_id: "proj" })
+        JSON.stringify({ quota_project_id: "my-test-proj" })
       );
 
       await getQuotaProject();
 
       expect(readFile).toHaveBeenCalledWith(
-        expect.stringContaining("/fake/appdata"),
+        expect.stringContaining(join("/fake/appdata", "gcloud")),
         "utf8"
       );
     });
@@ -296,7 +311,7 @@ describe("gcloud", () => {
 
       const result = await checkGcloudInstalled();
       expect(result).toStrictEqual({ ok: true });
-      expect(process.env.PATH).toContain("/fake/local");
+      expect(process.env.PATH).toContain(`${sep}fake${sep}local`);
     });
 
     it("falls through when gcloud found but retry also fails", async () => {
@@ -349,7 +364,7 @@ describe("gcloud", () => {
 
       const result = await checkGcloudInstalled();
       expect(result).toStrictEqual({ ok: true });
-      expect(process.env.PATH).toContain("/fake/local");
+      expect(process.env.PATH).toContain(`${sep}fake${sep}local`);
     });
 
     it("skips undefined env var bases without checking existsSync", async () => {

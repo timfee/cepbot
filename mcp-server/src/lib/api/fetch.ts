@@ -77,6 +77,10 @@ function assertIs<T>(_: unknown): asserts _ is T {
 /**
  * Makes an authenticated request to a Google API, resolving credentials
  * from ADC when no explicit access token is provided.
+ *
+ * Set `skipQuotaProject` to omit the `x-goog-user-project` header.
+ * This is needed for bootstrap calls to the Service Usage API before
+ * the quota project itself has the Service Usage API enabled.
  */
 export async function googleFetch<T>(
   url: string,
@@ -84,6 +88,7 @@ export async function googleFetch<T>(
     accessToken?: string | null;
     body?: unknown;
     method?: string;
+    skipQuotaProject?: boolean;
   }
 ): Promise<T> {
   const { quotaProjectId, token } = await resolveCredentials(
@@ -95,7 +100,7 @@ export async function googleFetch<T>(
     Authorization: `Bearer ${token}`,
   };
 
-  if (quotaProjectId) {
+  if (quotaProjectId && !options?.skipQuotaProject) {
     headers["x-goog-user-project"] = quotaProjectId;
   }
 

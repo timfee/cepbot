@@ -66,8 +66,10 @@ cepbot/
 
 ### Quick Setup
 
-Both scripts install Node.js, gcloud CLI, and Gemini CLI, then walk you through
-Google Cloud authentication with the required OAuth scopes.
+The setup scripts install Node.js, gcloud CLI, and Gemini CLI, then authenticate
+both the gcloud CLI (for setup-time commands) and Application Default Credentials
+(for the MCP server at runtime). You'll see two browser sign-in prompts — this is
+expected because they use different OAuth clients.
 
 **macOS / Linux:**
 
@@ -153,12 +155,22 @@ automatically rebuilds and commits the bundle on every push to `main`.
 
 ### Authentication
 
-The server authenticates via Application Default Credentials (ADC). On startup
-it verifies gcloud availability, ADC validity, and that the token carries all
-required OAuth scopes. If any check fails, the server enters degraded mode and
-returns agent-directive errors explaining how to fix the issue.
+Setup requires two separate authentications:
+
+1. **gcloud CLI auth** (`gcloud auth login`) — used by gcloud commands during
+   setup (project creation, API enablement). Uses Google's standard OAuth client.
+
+2. **Application Default Credentials** (`gcloud auth application-default login`)
+   — used by the MCP server at runtime. Uses a different OAuth client with the
+   custom scopes listed below. This is why you see two browser prompts.
+
+If you need to re-authenticate manually:
 
 ```bash
+# gcloud CLI (for gcloud commands)
+gcloud auth login
+
+# ADC (for the MCP server)
 gcloud auth application-default login \
   --scopes=https://www.googleapis.com/auth/admin.directory.customer.readonly,\
 https://www.googleapis.com/auth/admin.directory.orgunit.readonly,\
@@ -169,6 +181,10 @@ https://www.googleapis.com/auth/chrome.management.reports.readonly,\
 https://www.googleapis.com/auth/cloud-identity.policies,\
 https://www.googleapis.com/auth/cloud-platform
 ```
+
+On startup the server verifies gcloud availability, ADC validity, and that the
+token carries all required scopes. If any check fails, it enters degraded mode
+and returns errors with recovery instructions.
 
 ### Bootstrap Sequence
 
@@ -191,6 +207,45 @@ extension hooks and the server.
 No custom environment variables are required. The server reads credentials from
 the standard ADC file (`~/.config/gcloud/application_default_credentials.json`)
 and detects GCP metadata when running on Google Cloud infrastructure.
+
+## Troubleshooting
+
+**"API not enabled" or "quota exceeded" errors during setup**
+
+The gcloud CLI must be authenticated before the setup script can enable APIs or
+create projects. Re-run the setup script — it now prompts for gcloud CLI auth
+before ADC auth.
+
+**"Could not enable \<api\>" warnings**
+
+Your Google account may not have permission to enable APIs on the selected
+project. Choose a project where you have Editor or Owner role, or create a new
+one during setup.
+
+**MCP server starts in degraded mode**
+
+Check that ADC credentials exist and have the correct scopes:
+
+```bash
+# Verify ADC file exists
+cat ~/.config/gcloud/application_default_credentials.json   # Linux/macOS
+cat %APPDATA%\gcloud\application_default_credentials.json   # Windows
+
+# Verify it has a quota_project_id
+# If missing, set one:
+gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+```
+
+**Two browser prompts during setup**
+
+This is expected. `gcloud auth login` and
+`gcloud auth application-default login` use different OAuth clients and maintain
+separate credential stores.
+
+**Project selection shows no projects**
+
+Your account may not have any GCP projects, or the gcloud CLI isn't
+authenticated. The setup script will offer to create a new project automatically.
 
 ## License
 

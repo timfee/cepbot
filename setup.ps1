@@ -35,8 +35,11 @@ function Invoke-CepbotSetup {
     # When invoked via "irm … | iex", execution policy is bypassed for the
     # script text itself, but child .ps1 shims on disk (npm.ps1, gemini.ps1,
     # etc.) are still subject to the machine policy and will fail with
-    # "UnauthorizedAccess". Relax the policy for this process only — this does
-    # not persist after the terminal is closed and does not require admin.
+    # "UnauthorizedAccess".  Set RemoteSigned for the current user (persists
+    # across sessions, non-admin) so tools like gemini.ps1 work after setup.
+    # Also bypass for this process in case CurrentUser is overridden by a
+    # stricter machine policy.
+    try { Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force } catch {}
     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
     try {
@@ -651,24 +654,23 @@ function Invoke-CepbotSetup {
     # Ignore exit code — uninstall fails harmlessly if not installed.
 
     Write-Host '   Registering extension...'
-    Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
+    # Pipe "Y" to auto-confirm the install prompt. The Gemini CLI asks
+    # "Do you want to continue? [Y/n]" which reads from stdin — without
+    # this, piped/non-interactive sessions get EOF and silently skip.
+    # Exit codes are unreliable (libuv assertion crash returns random
+    # negative codes on success), so we verify via the enablement file.
+    Invoke-Native { 'Y' | gemini extensions install https://github.com/timfee/cepbot }
     $installExitCode = $LASTEXITCODE
 
-    if ($installExitCode -eq 0) {
-        # Success on first try
-    }
-    elseif ($installExitCode -eq 41) {
-        # Exit code 41 = FatalAuthenticationError.  The CLI validated its
-        # global auth state before processing the subcommand.  Launch gemini
+    if ($installExitCode -eq 41) {
+        # Exit code 41 = FatalAuthenticationError.  Launch gemini
         # interactively so the user can complete browser sign-in, then retry.
         Write-Warn 'Extension install needs Gemini CLI authentication first.'
         Write-Host ''
         Write-Host '   Launching Gemini CLI for first-time sign-in.' -ForegroundColor Yellow
-        Write-Host '   A browser window will open — complete the sign-in there.' -ForegroundColor Yellow
+        Write-Host '   A browser window will open - complete the sign-in there.' -ForegroundColor Yellow
         Write-Host '   Once authenticated, type /quit to return to setup.' -ForegroundColor Yellow
         Write-Host ''
-        # Avoid Invoke-Native here — its 2>&1 redirect can interfere with
-        # interactive terminal programs.
         try {
             $ErrorActionPreference = 'SilentlyContinue'
             & gemini
@@ -678,14 +680,28 @@ function Invoke-CepbotSetup {
         }
         Write-Host ''
         Write-Host '   Retrying extension install...'
-        Invoke-Native { gemini extensions install https://github.com/timfee/cepbot }
-        if (-not (Assert-ExitCode 'Extension install')) { return }
+        Invoke-Native { 'Y' | gemini extensions install https://github.com/timfee/cepbot }
+    }
+
+    # Verify via the enablement file — exit codes are unreliable.
+    $enablementFile = Join-Path $env:USERPROFILE '.gemini\extensions\extension-enablement.json'
+    $extensionOk = $false
+    if (Test-Path $enablementFile) {
+        try {
+            $enablement = Get-Content $enablementFile -Raw | ConvertFrom-Json
+            if ($null -ne (Get-Member -InputObject $enablement -Name 'chrome-enterprise-premium' -MemberType NoteProperty)) {
+                $extensionOk = $true
+            }
+        }
+        catch { }
+    }
+    if ($extensionOk) {
+        Write-Ok 'cepbot extension installed'
     }
     else {
-        Write-Fail "Extension install failed (exit code $installExitCode). Check your network connection and try again."
+        Write-Fail 'Extension install did not register. Try manually: gemini extensions install https://github.com/timfee/cepbot'
         return
     }
-    Write-Ok 'cepbot extension installed'
 
     # ------ done --------------------------------------------------------------
 

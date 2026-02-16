@@ -28,7 +28,10 @@ async function pollOperation(
   skipQuotaProject?: boolean
 ): Promise<void> {
   for (let i = 0; i < POLLING.MAX_ATTEMPTS; i += 1) {
-    const op = await googleFetch<Operation>(operationUrl, { accessToken, skipQuotaProject });
+    const op = await googleFetch<Operation>(operationUrl, {
+      accessToken,
+      skipQuotaProject,
+    });
 
     if (op.done) {
       return;
@@ -52,7 +55,10 @@ export async function getServiceState(
   skipQuotaProject?: boolean
 ): Promise<string> {
   const url = `${API_BASE_URLS.SERVICE_USAGE}/projects/${projectId}/services/${api}`;
-  const result = await googleFetch<ServiceState>(url, { accessToken, skipQuotaProject });
+  const result = await googleFetch<ServiceState>(url, {
+    accessToken,
+    skipQuotaProject,
+  });
   return result.state;
 }
 

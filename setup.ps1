@@ -82,20 +82,36 @@ function Invoke-CepbotSetup {
     }
 
     function Invoke-Native {
-        # Run a native command (exe / cmd / ps1 shim) without letting its
-        # stderr output become a terminating error under $ErrorActionPreference
-        # = 'Stop'.  Stderr is merged into stdout so it displays as normal
-        # text instead of scary red.  $LASTEXITCODE is preserved for the
-        # caller's Assert-ExitCode check.
+        # Run a native command without letting its stderr become a
+        # terminating error under $ErrorActionPreference = 'Stop'.
+        #
+        # 2>&1 merges stderr into the output pipeline, but PowerShell
+        # wraps each stderr line as an ErrorRecord object.  When
+        # stringified (e.g. via Out-String), ErrorRecords become
+        # "python.exe : <message>" — polluting any variable that
+        # captures the output.  We filter them out of the pipeline and
+        # display them via Write-Host so callers only see clean stdout.
         param([scriptblock]$Command)
         $saved = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            & $Command 2>&1
+            & $Command 2>&1 | ForEach-Object {
+                if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                    Write-Host $_.Exception.Message
+                } else {
+                    $_
+                }
+            }
         }
         finally {
             $ErrorActionPreference = $saved
         }
+    }
+
+    function Read-HostSafe {
+        param([string]$Prompt)
+        try { return Read-Host -Prompt $Prompt }
+        catch { return $null }
     }
 
     function Update-SessionPath {
@@ -309,7 +325,7 @@ function Invoke-CepbotSetup {
 
     if ($activeAccount) {
         Write-Ok "gcloud CLI authenticated as $activeAccount"
-        $response = Read-Host '   Re-authenticate gcloud CLI? (y/N)'
+        $response = Read-HostSafe '   Re-authenticate gcloud CLI? (y/N)'
         if ($response -eq 'y' -or $response -eq 'Y') {
             Invoke-Native { gcloud auth login }
             if (-not (Assert-ExitCode 'gcloud CLI auth')) {
@@ -349,7 +365,7 @@ function Invoke-CepbotSetup {
     if (Test-Path $adcPath) {
         Write-Warn 'ADC credentials file already exists.'
         Write-Host '   Note: ADC uses a separate OAuth client from gcloud CLI - a second browser prompt is expected.' -ForegroundColor DarkGray
-        $response = Read-Host '   Re-authenticate ADC? (y/N)'
+        $response = Read-HostSafe '   Re-authenticate ADC? (y/N)'
         if ($response -ne 'y' -and $response -ne 'Y') {
             Write-Skip 'ADC authentication'
             $shouldAuth = $false
@@ -453,7 +469,7 @@ function Invoke-CepbotSetup {
 
     if ($projectId) {
         Write-Host "   Current project: $projectId"
-        $response = Read-Host '   Use this project? (Y/n/list)'
+        $response = Read-HostSafe '   Use this project? (Y/n/list)'
         if (-not $response) { $response = '' }
         $response = $response.Trim().ToLower()
         if ($response -eq '' -or $response -eq 'y' -or $response -eq 'yes') {
@@ -503,13 +519,13 @@ function Invoke-CepbotSetup {
             Write-Host '   [E] Enter a project ID manually' -ForegroundColor DarkGray
             Write-Host '   [C] Create a new project' -ForegroundColor DarkGray
             Write-Host ''
-            $response = Read-Host "   Select (1-$($projects.Count), E, or C)"
+            $response = Read-HostSafe "   Select (1-$($projects.Count), E, or C)"
             if (-not $response) { $response = '' }
             $response = $response.Trim()
         }
 
         if ($response -eq 'e' -or $response -eq 'E') {
-            $customId = Read-Host '   Enter project ID'
+            $customId = Read-HostSafe '   Enter project ID'
             if (-not $customId) { $customId = '' }
             $customId = $customId.Trim()
             if ($customId -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {

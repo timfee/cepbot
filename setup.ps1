@@ -429,8 +429,8 @@ function Invoke-CepbotSetup {
     # Helper: persist project ID to both gcloud config and ADC file.
     function Set-ProjectEverywhere {
         param([string]$Id)
-        $null = Invoke-Native { gcloud config set project $Id }
-        $null = Invoke-Native { gcloud auth application-default set-quota-project $Id }
+        $null = Invoke-Native { gcloud config set project $Id 2>$null }
+        $null = Invoke-Native { gcloud auth application-default set-quota-project $Id 2>$null }
         if (-not (Test-AdcQuotaProject $Id)) {
             Write-Warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
             $null = Set-AdcQuotaProjectDirect $Id
@@ -457,7 +457,7 @@ function Invoke-CepbotSetup {
     }
     # Fall back to gcloud config project
     if (-not $projectId) {
-        $projectLines = Invoke-Native { gcloud config get-value project } | Out-String
+        $projectLines = Invoke-Native { gcloud config get-value project 2>$null } | Out-String
         foreach ($line in $projectLines -split '\r?\n') {
             $l = $line.Trim()
             if ($l -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
@@ -550,7 +550,7 @@ function Invoke-CepbotSetup {
             $newProjectId = "mcp-$cvc1-$cvc2"
 
             Write-Host "   Creating project $newProjectId..."
-            $null = Invoke-Native { gcloud projects create $newProjectId }
+            $null = Invoke-Native { gcloud projects create $newProjectId 2>$null }
             if ($LASTEXITCODE -ne 0) {
                 Write-Fail "Could not create project $newProjectId."
                 return
@@ -589,7 +589,7 @@ function Invoke-CepbotSetup {
         Write-Host "   Enabling required APIs on $projectId..."
         $allApisOk = $true
         foreach ($api in $requiredApis) {
-            $null = Invoke-Native { gcloud services enable $api --project $projectId }
+            $null = Invoke-Native { gcloud services enable $api --project $projectId 2>$null }
             if ($LASTEXITCODE -ne 0) {
                 Write-Warn "   Could not enable $api (the agent will retry at runtime)."
                 $allApisOk = $false

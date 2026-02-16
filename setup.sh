@@ -570,31 +570,36 @@ step '8/8  Install cepbot Gemini extension'
 gemini extensions uninstall chrome-enterprise-premium 2>/dev/null || true
 
 echo '   Registering extension...'
-# Capture exit code without triggering set -e
+# Pipe "Y" to auto-confirm the install prompt — without this, piped/
+# non-interactive sessions get EOF and the install silently skips.
 install_rc=0
-gemini extensions install https://github.com/timfee/cepbot 2>&1 || install_rc=$?
+echo "Y" | gemini extensions install https://github.com/timfee/cepbot 2>&1 || install_rc=$?
 
-if [ "$install_rc" -eq 0 ]; then
-  : # Success on first try
-elif [ "$install_rc" -eq 41 ]; then
-  # Exit code 41 = FatalAuthenticationError.  The CLI validated its global
-  # auth state before processing the subcommand.  Launch gemini interactively
+enablement_file="${HOME}/.gemini/extensions/extension-enablement.json"
+
+if [ "$install_rc" -eq 41 ]; then
+  # Exit code 41 = FatalAuthenticationError.  Launch gemini interactively
   # so the user can complete the browser sign-in, then retry.
   warn 'Extension install needs Gemini CLI authentication first.'
   echo ''
   printf "   ${YELLOW}Launching Gemini CLI for first-time sign-in.${RESET}\n"
-  printf "   ${YELLOW}A browser window will open — complete the sign-in there.${RESET}\n"
+  printf "   ${YELLOW}A browser window will open - complete the sign-in there.${RESET}\n"
   printf "   ${YELLOW}Once authenticated, type /quit to return to setup.${RESET}\n"
   echo ''
   gemini || true
   echo ''
   echo '   Retrying extension install...'
-  gemini extensions install https://github.com/timfee/cepbot \
-    || fail 'Failed to install the cepbot extension.'
-else
-  fail "Extension install failed (exit code $install_rc). Check your network connection and try again."
+  echo "Y" | gemini extensions install https://github.com/timfee/cepbot 2>&1 \
+    || true
 fi
-ok 'cepbot extension installed'
+
+# Verify the extension actually registered (exit codes are unreliable
+# due to the libuv assertion crash).
+if [ -f "$enablement_file" ] && grep -q '"chrome-enterprise-premium"' "$enablement_file" 2>/dev/null; then
+  ok 'cepbot extension installed'
+else
+  fail 'Extension install did not register. Try manually: gemini extensions install https://github.com/timfee/cepbot'
+fi
 
 # ---------- done --------------------------------------------------------------
 

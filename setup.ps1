@@ -94,23 +94,17 @@ function Invoke-CepbotSetup {
         # Run a native command without letting its stderr become a
         # terminating error under $ErrorActionPreference = 'Stop'.
         #
-        # 2>&1 merges stderr into the output pipeline, but PowerShell
-        # wraps each stderr line as an ErrorRecord object.  When
-        # stringified (e.g. via Out-String), ErrorRecords become
-        # "python.exe : <message>" — polluting any variable that
-        # captures the output.  We filter them out of the pipeline and
-        # display them via Write-Host so callers only see clean stdout.
+        # We temporarily lower ErrorActionPreference so stderr lines
+        # don't terminate the script.  We intentionally avoid piping
+        # through ForEach-Object (e.g. 2>&1 | ForEach-Object) because
+        # that turns stdout into a pipeline, which breaks carriage-return
+        # based animations (winget/npm progress bars).  Noisy commands
+        # (gemini) are handled separately with explicit 2>$null.
         param([scriptblock]$Command)
         $saved = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
-            & $Command 2>&1 | ForEach-Object {
-                if ($_ -is [System.Management.Automation.ErrorRecord]) {
-                    Write-Host $_.Exception.Message
-                } else {
-                    $_
-                }
-            }
+            & $Command
         }
         finally {
             $ErrorActionPreference = $saved

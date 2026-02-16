@@ -295,6 +295,43 @@ function Invoke-CepbotSetup {
 
     Write-Step '5/8  Google Cloud authentication'
 
+    # --- 5a. gcloud CLI auth (needed for gcloud commands during setup) ---
+    Write-Host '   Checking gcloud CLI auth...'
+    $activeAccount = $null
+    $authLines = Invoke-Native { gcloud auth list --filter=status:ACTIVE --format="value(account)" } | Out-String
+    foreach ($line in $authLines -split '\r?\n') {
+        $l = $line.Trim()
+        if ($l -match '@') {
+            $activeAccount = $l
+            break
+        }
+    }
+
+    if ($activeAccount) {
+        Write-Ok "gcloud CLI authenticated as $activeAccount"
+        $response = Read-Host '   Re-authenticate gcloud CLI? (y/N)'
+        if ($response -eq 'y' -or $response -eq 'Y') {
+            Invoke-Native { gcloud auth login }
+            if (-not (Assert-ExitCode 'gcloud CLI auth')) {
+                Write-Host '   gcloud CLI auth was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
+                return
+            }
+            Write-Ok 'gcloud CLI re-authenticated'
+        }
+    }
+    else {
+        Write-Host '   No active gcloud CLI account. A browser window will open for sign-in...'
+        Invoke-Native { gcloud auth login }
+        if (-not (Assert-ExitCode 'gcloud CLI auth')) {
+            Write-Host '   gcloud CLI auth was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
+            return
+        }
+        Write-Ok 'gcloud CLI authenticated'
+    }
+
+    # --- 5b. ADC auth (used by the MCP server at runtime) ---
+    Write-Host '   Checking Application Default Credentials (ADC)...'
+
     $scopes = @(
         'https://www.googleapis.com/auth/admin.directory.customer.readonly'
         'https://www.googleapis.com/auth/admin.directory.orgunit.readonly'
@@ -311,64 +348,33 @@ function Invoke-CepbotSetup {
     $shouldAuth = $true
     if (Test-Path $adcPath) {
         Write-Warn 'ADC credentials file already exists.'
-        $response = Read-Host '   Re-authenticate? (y/N)'
+        Write-Host '   Note: ADC uses a separate OAuth client from gcloud CLI - a second browser prompt is expected.' -ForegroundColor DarkGray
+        $response = Read-Host '   Re-authenticate ADC? (y/N)'
         if ($response -ne 'y' -and $response -ne 'Y') {
-            Write-Skip 'authentication'
+            Write-Skip 'ADC authentication'
             $shouldAuth = $false
         }
     }
     else {
-        Write-Host '   A browser window will open for Google sign-in...'
+        Write-Host '   A browser window will open for ADC sign-in...'
+        Write-Host '   Note: this is a separate OAuth client from gcloud CLI - a second browser prompt is expected.' -ForegroundColor DarkGray
     }
 
     if ($shouldAuth) {
         Invoke-Native { gcloud auth application-default login --scopes=$scopes }
-        if (-not (Assert-ExitCode 'Authentication')) {
-            Write-Host '   Authentication was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
+        if (-not (Assert-ExitCode 'ADC authentication')) {
+            Write-Host '   ADC authentication was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
             return
         }
-        Write-Ok 'Authenticated with required scopes'
+        Write-Ok 'ADC authenticated with required scopes'
     }
 
     # ------ 6. Quota project --------------------------------------------------
 
     Write-Step '6/8  GCP quota project'
 
-    # Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts:
-    #   1. Check ADC file for existing quota_project_id
-    #   2. Fall back to gcloud config project
-    #   3. Try to set it as the ADC quota project
-    #   4. If no project exists anywhere, create one
-    $projectId = $null
-    $quotaProjectSet = $false
-
-    # --- 6a. Check ADC file for existing quota_project_id ---
     $adcFile = Join-Path (Join-Path $env:APPDATA 'gcloud') 'application_default_credentials.json'
-    if (Test-Path $adcFile) {
-        try {
-            $adcJson = Get-Content $adcFile -Raw | ConvertFrom-Json
-            if ($adcJson.quota_project_id) {
-                $projectId = $adcJson.quota_project_id
-                Write-Ok "Quota project (from ADC): $projectId"
-                $quotaProjectSet = $true
-            }
-        }
-        catch {
-            # ADC file corrupt or unreadable — continue to next fallback
-        }
-    }
-
-    # --- 6b. Fall back to gcloud config project ---
-    if (-not $projectId) {
-        $projectLines = Invoke-Native { gcloud config get-value project } | Out-String
-        foreach ($line in $projectLines -split '\r?\n') {
-            $l = $line.Trim()
-            if ($l -and $l -ne '(unset)' -and $l -notmatch '^(WARNING|ERROR)') {
-                $projectId = $l
-                break
-            }
-        }
-    }
+    $projectId = $null
 
     # Helper: verify the ADC file contains the expected quota_project_id.
     function Test-AdcQuotaProject {
@@ -401,83 +407,170 @@ function Invoke-CepbotSetup {
         catch { return $false }
     }
 
-    # --- 6c. Try to persist the project as ADC quota project ---
-    if ($projectId -and -not $quotaProjectSet) {
-        $null = Invoke-Native { gcloud auth application-default set-quota-project $projectId }
-        if (Test-AdcQuotaProject $projectId) {
-            Write-Ok "Quota project: $projectId"
-            $quotaProjectSet = $true
+    # Helper: persist project ID to both gcloud config and ADC file.
+    function Set-ProjectEverywhere {
+        param([string]$Id)
+        $null = Invoke-Native { gcloud config set project $Id }
+        $null = Invoke-Native { gcloud auth application-default set-quota-project $Id }
+        if (-not (Test-AdcQuotaProject $Id)) {
+            Write-Warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
+            $null = Set-AdcQuotaProjectDirect $Id
+        }
+        if (Test-AdcQuotaProject $Id) {
+            Write-Ok "Project set: $Id"
+            return $true
         }
         else {
-            Write-Warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
-            if (Set-AdcQuotaProjectDirect $projectId) {
-                if (Test-AdcQuotaProject $projectId) {
-                    Write-Ok "Quota project (patched): $projectId"
-                    $quotaProjectSet = $true
-                }
+            Write-Warn "Could not persist project $Id to ADC file."
+            return $false
+        }
+    }
+
+    # --- 6a. Check for existing project ---
+    if (Test-Path $adcFile) {
+        try {
+            $adcJson = Get-Content $adcFile -Raw | ConvertFrom-Json
+            if ($adcJson.quota_project_id -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+                $projectId = $adcJson.quota_project_id
+            }
+        }
+        catch { }
+    }
+    # Fall back to gcloud config project
+    if (-not $projectId) {
+        $projectLines = Invoke-Native { gcloud config get-value project } | Out-String
+        foreach ($line in $projectLines -split '\r?\n') {
+            $l = $line.Trim()
+            if ($l -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+                $projectId = $l
+                break
             }
         }
     }
 
-    # --- 6d. No usable project — create one (mirrors bootstrap.ts) ---
-    if (-not $quotaProjectSet) {
-        Write-Host '   No usable quota project found. Creating one...'
-        $consonants = 'bcdfghjklmnpqrstvwxyz'
-        $vowels = 'aeiou'
-        $rng = [System.Random]::new()
-        $cvc1 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
-        $cvc2 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
-        $newProjectId = "mcp-$cvc1-$cvc2"
+    # --- 6b. Interactive project selection ---
+    $needsSelection = $true
 
-        $null = Invoke-Native { gcloud projects create $newProjectId }
-        if ($LASTEXITCODE -eq 0) {
-            $projectId = $newProjectId
-            $null = Invoke-Native { gcloud auth application-default set-quota-project $newProjectId }
-            if (Test-AdcQuotaProject $newProjectId) {
-                Write-Ok "Created and set quota project: $newProjectId"
-                $quotaProjectSet = $true
+    if ($projectId) {
+        Write-Host "   Current project: $projectId"
+        $response = Read-Host '   Use this project? (Y/n/list)'
+        if (-not $response) { $response = '' }
+        $response = $response.Trim().ToLower()
+        if ($response -eq '' -or $response -eq 'y' -or $response -eq 'yes') {
+            $null = Set-ProjectEverywhere $projectId
+            $needsSelection = $false
+        }
+        elseif ($response -eq 'n' -or $response -eq 'no' -or $response -eq 'list' -or $response -eq 'l') {
+            $needsSelection = $true
+        }
+        else {
+            $null = Set-ProjectEverywhere $projectId
+            $needsSelection = $false
+        }
+    }
+
+    if ($needsSelection) {
+        Write-Host '   Fetching your GCP projects...'
+        $projectListRaw = Invoke-Native { gcloud projects list --format="value(projectId,name)" --sort-by=~createTime --limit=20 } | Out-String
+        $projects = @()
+        foreach ($line in $projectListRaw -split '\r?\n') {
+            $l = $line.Trim()
+            if ($l -eq '') { continue }
+            $parts = $l -split '\t', 2
+            $projId = $parts[0].Trim()
+            $pname = if ($parts.Length -gt 1) { $parts[1].Trim() } else { '' }
+            if ($projId -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+                $projects += [PSCustomObject]@{ Id = $projId; Name = $pname }
+            }
+        }
+
+        if ($projects.Count -eq 0) {
+            Write-Warn 'No existing projects found. Creating a new one...'
+            $response = 'c'
+        }
+        else {
+            Write-Host ''
+            Write-Host '   Your GCP projects:' -ForegroundColor White
+            for ($i = 0; $i -lt $projects.Count; $i++) {
+                $p = $projects[$i]
+                $display = "   [$($i + 1)] $($p.Id)"
+                if ($p.Name -and $p.Name -ne $p.Id) {
+                    $display += "  ($($p.Name))"
+                }
+                Write-Host $display
+            }
+            Write-Host ''
+            Write-Host '   [E] Enter a project ID manually' -ForegroundColor DarkGray
+            Write-Host '   [C] Create a new project' -ForegroundColor DarkGray
+            Write-Host ''
+            $response = Read-Host "   Select (1-$($projects.Count), E, or C)"
+            if (-not $response) { $response = '' }
+            $response = $response.Trim()
+        }
+
+        if ($response -eq 'e' -or $response -eq 'E') {
+            $customId = Read-Host '   Enter project ID'
+            if (-not $customId) { $customId = '' }
+            $customId = $customId.Trim()
+            if ($customId -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+                $projectId = $customId
             }
             else {
-                Write-Warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
-                if (Set-AdcQuotaProjectDirect $newProjectId) {
-                    if (Test-AdcQuotaProject $newProjectId) {
-                        Write-Ok "Created and set quota project (patched): $newProjectId"
-                        $quotaProjectSet = $true
-                    }
-                }
+                Write-Fail "Invalid project ID format: $customId"
+                Write-Host '   Project IDs must be 6-30 chars: lowercase letters, digits, hyphens.' -ForegroundColor Yellow
+                return
             }
         }
+        elseif ($response -eq 'c' -or $response -eq 'C') {
+            # --- 6c. Create new project ---
+            $consonants = 'bcdfghjklmnpqrstvwxyz'
+            $vowels = 'aeiou'
+            $rng = [System.Random]::new()
+            $cvc1 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
+            $cvc2 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
+            $newProjectId = "mcp-$cvc1-$cvc2"
+
+            Write-Host "   Creating project $newProjectId..."
+            $null = Invoke-Native { gcloud projects create $newProjectId }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Fail "Could not create project $newProjectId."
+                return
+            }
+            $projectId = $newProjectId
+            Write-Ok "Created project: $newProjectId"
+        }
+        else {
+            $num = 0
+            if ([int]::TryParse($response, [ref]$num) -and $num -ge 1 -and $num -le $projects.Count) {
+                $projectId = $projects[$num - 1].Id
+            }
+            else {
+                Write-Fail "Invalid selection: $response"
+                return
+            }
+        }
+
+        # --- 6d. Persist project ---
+        $null = Set-ProjectEverywhere $projectId
     }
 
+    $quotaProjectSet = Test-AdcQuotaProject $projectId
     if (-not $quotaProjectSet) {
         Write-Warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
     }
 
-    # --- 6e. Enable required APIs (mirrors bootstrap.ts ensureApisEnabled) ---
-    # Resolve the final project ID from ADC (may have been set in 6c or 6d).
-    $apiProjectId = $null
-    if ($quotaProjectSet) {
-        if (Test-Path $adcFile) {
-            try {
-                $adcRefresh = Get-Content $adcFile -Raw | ConvertFrom-Json
-                $apiProjectId = $adcRefresh.quota_project_id
-            }
-            catch { }
-        }
-        if (-not $apiProjectId) { $apiProjectId = $projectId }
-    }
-
-    if ($apiProjectId) {
+    # --- 6e. Enable required APIs ---
+    if ($projectId) {
         $requiredApis = @(
             'serviceusage.googleapis.com'
             'admin.googleapis.com'
             'chromemanagement.googleapis.com'
             'cloudidentity.googleapis.com'
         )
-        Write-Host "   Enabling required APIs on $apiProjectId..."
+        Write-Host "   Enabling required APIs on $projectId..."
         $allApisOk = $true
         foreach ($api in $requiredApis) {
-            $null = Invoke-Native { gcloud services enable $api --project $apiProjectId }
+            $null = Invoke-Native { gcloud services enable $api --project $projectId }
             if ($LASTEXITCODE -ne 0) {
                 Write-Warn "   Could not enable $api (the agent will retry at runtime)."
                 $allApisOk = $false

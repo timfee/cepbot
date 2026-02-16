@@ -48,6 +48,12 @@ interface ADCCredentials {
 }
 
 /**
+ * GCP project IDs: 6-30 characters, lowercase letters, digits, and hyphens;
+ * must start with a letter and end with a letter or digit.
+ */
+const PROJECT_ID_RE = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+
+/**
  * On Windows gcloud is a .cmd wrapper, and execFileSync cannot launch
  * .cmd files without a shell.  Pass { shell: true } so cmd.exe resolves it.
  */
@@ -177,7 +183,10 @@ export function getGcloudProject(): string | null {
       encoding: "utf8",
     });
     const trimmed = output.trim();
-    return trimmed && trimmed !== "(unset)" ? trimmed : null;
+    if (!trimmed || trimmed === "(unset)" || !PROJECT_ID_RE.test(trimmed)) {
+      return null;
+    }
+    return trimmed;
   } catch {
     return null;
   }
@@ -188,7 +197,11 @@ export function getGcloudProject(): string | null {
  */
 export async function getQuotaProject(): Promise<string | null> {
   const creds = await readADCFile();
-  return creds?.quota_project_id ?? null;
+  const id = creds?.quota_project_id;
+  if (!id || !PROJECT_ID_RE.test(id)) {
+    return null;
+  }
+  return id;
 }
 
 /**

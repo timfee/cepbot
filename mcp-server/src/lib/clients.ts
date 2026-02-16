@@ -24,10 +24,11 @@ interface ProjectOperation extends Operation {
 
 async function pollOperation(
   operationUrl: string,
-  accessToken: string
+  accessToken: string,
+  skipQuotaProject?: boolean
 ): Promise<void> {
   for (let i = 0; i < POLLING.MAX_ATTEMPTS; i += 1) {
-    const op = await googleFetch<Operation>(operationUrl, { accessToken });
+    const op = await googleFetch<Operation>(operationUrl, { accessToken, skipQuotaProject });
 
     if (op.done) {
       return;
@@ -41,36 +42,43 @@ async function pollOperation(
 
 /**
  * Fetches the current enablement state of a Google API on a project.
+ * Set `skipQuotaProject` to omit the quota project header (needed for
+ * bootstrapping the Service Usage API itself).
  */
 export async function getServiceState(
   projectId: string,
   api: string,
-  accessToken: string
+  accessToken: string,
+  skipQuotaProject?: boolean
 ): Promise<string> {
   const url = `${API_BASE_URLS.SERVICE_USAGE}/projects/${projectId}/services/${api}`;
-  const result = await googleFetch<ServiceState>(url, { accessToken });
+  const result = await googleFetch<ServiceState>(url, { accessToken, skipQuotaProject });
   return result.state;
 }
 
 /**
  * Enables a Google API on a project and polls until the operation completes.
+ * Set `skipQuotaProject` to omit the quota project header.
  */
 export async function enableService(
   projectId: string,
   api: string,
-  accessToken: string
+  accessToken: string,
+  skipQuotaProject?: boolean
 ): Promise<void> {
   const url = `${API_BASE_URLS.SERVICE_USAGE}/projects/${projectId}/services/${api}:enable`;
   const op = await googleFetch<Operation>(url, {
     accessToken,
     body: {},
     method: "POST",
+    skipQuotaProject,
   });
 
   if (op.name && !op.done) {
     await pollOperation(
       `${API_BASE_URLS.SERVICE_USAGE}/${op.name}`,
-      accessToken
+      accessToken,
+      skipQuotaProject
     );
   }
 }

@@ -108,10 +108,11 @@ async function checkAndEnableApi(
   projectId: string,
   api: string,
   accessToken: string,
-  progress?: ProgressCallback
+  progress?: ProgressCallback,
+  skipQuotaProject?: boolean
 ): Promise<void> {
   const state = await callWithRetry(
-    async () => getServiceState(projectId, api, accessToken),
+    async () => getServiceState(projectId, api, accessToken, skipQuotaProject),
     `getService ${api}`,
     progress
   );
@@ -126,13 +127,13 @@ async function checkAndEnableApi(
   });
 
   await callWithRetry(
-    async () => enableService(projectId, api, accessToken),
+    async () => enableService(projectId, api, accessToken, skipQuotaProject),
     `enableService ${api}`,
     progress
   );
 
   const verifiedState = await callWithRetry(
-    async () => getServiceState(projectId, api, accessToken),
+    async () => getServiceState(projectId, api, accessToken, skipQuotaProject),
     `verifyService ${api}`,
     progress
   );
@@ -146,15 +147,18 @@ async function checkAndEnableApi(
 
 /**
  * Attempts to enable a single API with one automatic retry on failure.
+ * Set `skipQuotaProject` for prerequisite APIs that must be enabled
+ * before the quota project itself can accept API requests.
  */
 export async function enableApiWithRetry(
   projectId: string,
   api: string,
   accessToken: string,
-  progress?: ProgressCallback
+  progress?: ProgressCallback,
+  skipQuotaProject?: boolean
 ): Promise<void> {
   try {
-    await checkAndEnableApi(projectId, api, accessToken, progress);
+    await checkAndEnableApi(projectId, api, accessToken, progress, skipQuotaProject);
   } catch {
     progress?.({
       data: `Failed to check/enable ${api}, retrying in 1s...`,
@@ -164,7 +168,7 @@ export async function enableApiWithRetry(
     await delay(RETRY.ENABLE_RETRY_MS);
 
     try {
-      await checkAndEnableApi(projectId, api, accessToken, progress);
+      await checkAndEnableApi(projectId, api, accessToken, progress, skipQuotaProject);
     } catch (retryError: unknown) {
       const message = `Failed to ensure API [${api}] is enabled after retry. Please check manually.`;
       progress?.({ data: message, level: "error" });
@@ -186,9 +190,13 @@ export async function ensureApisEnabled(
 ): Promise<string[]> {
   const failed: string[] = [];
 
+  // Prerequisite APIs (e.g. serviceusage) must be checked/enabled WITHOUT
+  // the x-goog-user-project quota header.  The quota project may not have
+  // the Service Usage API enabled yet, so including the header would cause
+  // a 403 SERVICE_DISABLED chicken-and-egg failure.
   for (const api of PREREQUISITE_APIS) {
     try {
-      await enableApiWithRetry(projectId, api, accessToken, progress);
+      await enableApiWithRetry(projectId, api, accessToken, progress, true);
     } catch (error: unknown) {
       const message = errorMessage(error);
       progress?.({

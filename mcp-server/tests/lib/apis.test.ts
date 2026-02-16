@@ -136,7 +136,7 @@ describe("apis", () => {
         .mockResolvedValue("ENABLED");
 
       await enableApiWithRetry("proj", "some.api", "tok");
-      expect(enableService).toHaveBeenCalledWith("proj", "some.api", "tok");
+      expect(enableService).toHaveBeenCalledWith("proj", "some.api", "tok", undefined);
     });
 
     it("retries once on first failure then succeeds", async () => {
@@ -204,10 +204,19 @@ describe("apis", () => {
       );
 
       expect(failed).toEqual([]);
+      // Prerequisite API is called with skipQuotaProject=true
       expect(getServiceState).toHaveBeenCalledWith(
         "proj",
         "serviceusage.googleapis.com",
-        "tok"
+        "tok",
+        true
+      );
+      // Dependent APIs are called without skipQuotaProject
+      expect(getServiceState).toHaveBeenCalledWith(
+        "proj",
+        "custom.api",
+        "tok",
+        undefined
       );
       expect(progress).toHaveBeenCalledWith(
         expect.objectContaining({ data: "All required APIs are enabled." })

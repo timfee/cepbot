@@ -267,6 +267,32 @@ ok 'gemini CLI ready'
 
 step '5/8  Google Cloud authentication'
 
+# --- 5a. gcloud CLI auth (needed for gcloud commands during setup) ---
+echo '   Checking gcloud CLI auth...'
+active_account="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1 || true)"
+
+if [ -n "$active_account" ]; then
+  ok "gcloud CLI authenticated as $active_account"
+  if [ "$NONINTERACTIVE" = "1" ]; then
+    :
+  else
+    printf '   Re-authenticate gcloud CLI? (y/N) '
+    response=""
+    read -r response || response="N"
+    if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
+      gcloud auth login || fail 'gcloud CLI auth was cancelled or failed. Re-run to try again.'
+      ok 'gcloud CLI re-authenticated'
+    fi
+  fi
+else
+  echo '   No active gcloud CLI account. A browser window will open for sign-in...'
+  gcloud auth login || fail 'gcloud CLI auth was cancelled or failed. Re-run to try again.'
+  ok 'gcloud CLI authenticated'
+fi
+
+# --- 5b. ADC auth (used by the MCP server at runtime) ---
+echo '   Checking Application Default Credentials (ADC)...'
+
 SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly"
 SCOPES+=",https://www.googleapis.com/auth/admin.directory.orgunit.readonly"
 SCOPES+=",https://www.googleapis.com/auth/admin.reports.audit.readonly"
@@ -278,62 +304,43 @@ SCOPES+=",https://www.googleapis.com/auth/cloud-platform"
 
 ADC_PATH="${HOME}/.config/gcloud/application_default_credentials.json"
 
-do_auth() {
-  echo '   A browser window will open for Google sign-in...'
+do_adc_auth() {
+  echo '   A browser window will open for ADC sign-in...'
+  printf "   ${DIM}Note: ADC uses a separate OAuth client from gcloud CLI — a second browser prompt is expected.${RESET}\n"
   gcloud auth application-default login --scopes="$SCOPES" \
-    || fail 'Authentication failed or was cancelled. Re-run to try again.'
-  ok 'Authenticated with required scopes'
+    || fail 'ADC authentication failed or was cancelled. Re-run to try again.'
+  ok 'ADC authenticated with required scopes'
 }
 
 if [ -f "$ADC_PATH" ]; then
   if [ "$NONINTERACTIVE" = "1" ]; then
-    skip 'authentication (non-interactive mode; re-run interactively to re-authenticate)'
+    skip 'ADC authentication (non-interactive mode; re-run interactively to re-authenticate)'
   else
     warn 'ADC credentials file already exists.'
-    printf '   Re-authenticate? (y/N) '
+    printf "   ${DIM}Note: ADC uses a separate OAuth client from gcloud CLI — a second browser prompt is expected.${RESET}\n"
+    printf '   Re-authenticate ADC? (y/N) '
     response=""
     read -r response || response="N"
     if [ "$response" = "y" ] || [ "$response" = "Y" ]; then
-      do_auth
+      do_adc_auth
     else
-      skip 'authentication'
+      skip 'ADC authentication'
     fi
   fi
 else
-  do_auth
+  do_adc_auth
 fi
 
 # ---------- 6. Quota project --------------------------------------------------
 
 step '6/8  GCP quota project'
 
-# Mirrors the fallback logic in mcp-server/src/lib/bootstrap.ts:
-#   1. Check ADC file for existing quota_project_id
-#   2. Fall back to gcloud config project
-#   3. Try to set it as the ADC quota project
-#   4. If no project exists anywhere, create one
-project_id=""
-quota_set=false
-
-# --- 6a. Check ADC file for existing quota_project_id ---
 adc_file="${HOME}/.config/gcloud/application_default_credentials.json"
-if [ -f "$adc_file" ]; then
-  existing_quota="$(grep -o '"quota_project_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$adc_file" 2>/dev/null | head -n 1 | sed 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)"
-  if [ -n "$existing_quota" ]; then
-    project_id="$existing_quota"
-    ok "Quota project (from ADC): $project_id"
-    quota_set=true
-  fi
-fi
+project_id=""
 
-# --- 6b. Fall back to gcloud config project ---
-if [ -z "$project_id" ]; then
-  raw_project="$(gcloud config get-value project 2>/dev/null || true)"
-  project_id="$(printf '%s' "$raw_project" | tr -d '[:space:]')"
-  if [ "$project_id" = "(unset)" ]; then
-    project_id=""
-  fi
-fi
+is_valid_project_id() {
+  printf '%s' "$1" | grep -qE '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+}
 
 # Helper: directly patch quota_project_id into the ADC JSON file when
 # the gcloud CLI command fails.
@@ -355,65 +362,166 @@ verify_adc_quota_project() {
   grep -q "\"quota_project_id\"[[:space:]]*:[[:space:]]*\"${pid}\"" "$adc_file" 2>/dev/null
 }
 
-# --- 6c. Try to persist the project as ADC quota project ---
-if [ -n "$project_id" ] && [ "$quota_set" = false ]; then
-  gcloud auth application-default set-quota-project "$project_id" 2>/dev/null || true
-  if verify_adc_quota_project "$project_id"; then
-    ok "Quota project: $project_id"
-    quota_set=true
+# Helper: persist project ID to both gcloud config and ADC file.
+set_project_everywhere() {
+  local pid="$1"
+  gcloud config set project "$pid" 2>/dev/null || true
+  gcloud auth application-default set-quota-project "$pid" 2>/dev/null || true
+  if ! verify_adc_quota_project "$pid"; then
+    warn 'gcloud set-quota-project did not persist. Patching ADC file directly...'
+    patch_adc_quota_project "$pid" || true
+  fi
+  if verify_adc_quota_project "$pid"; then
+    ok "Project set: $pid"
+    return 0
   else
-    warn "gcloud set-quota-project did not persist. Patching ADC file directly..."
-    if patch_adc_quota_project "$project_id" && verify_adc_quota_project "$project_id"; then
-      ok "Quota project (patched): $project_id"
-      quota_set=true
-    fi
+    warn "Could not persist project $pid to ADC file."
+    return 1
+  fi
+}
+
+# --- 6a. Check for existing project ---
+if [ -f "$adc_file" ]; then
+  existing_quota="$(grep -o '"quota_project_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$adc_file" 2>/dev/null | head -n 1 | sed 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)"
+  if [ -n "$existing_quota" ] && is_valid_project_id "$existing_quota"; then
+    project_id="$existing_quota"
+  fi
+fi
+# Fall back to gcloud config project
+if [ -z "$project_id" ]; then
+  raw_project="$(gcloud config get-value project 2>/dev/null || true)"
+  candidate="$(printf '%s' "$raw_project" | tr -d '[:space:]')"
+  if [ "$candidate" != "(unset)" ] && is_valid_project_id "$candidate"; then
+    project_id="$candidate"
   fi
 fi
 
-# --- 6d. No usable project — create one (mirrors bootstrap.ts) ---
-if [ "$quota_set" = false ]; then
-  printf '   No usable quota project found. Creating one...\n'
-  consonants='bcdfghjklmnpqrstvwxyz'
-  vowels='aeiou'
-  pick_char() { local s="$1"; local i=$((RANDOM % ${#s})); printf '%s' "${s:$i:1}"; }
-  cvc1="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
-  cvc2="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
-  new_project_id="mcp-${cvc1}-${cvc2}"
+# --- 6b. Interactive project selection ---
+needs_selection=true
 
-  if gcloud projects create "$new_project_id" 2>/dev/null; then
-    project_id="$new_project_id"
-    gcloud auth application-default set-quota-project "$new_project_id" 2>/dev/null || true
-    if verify_adc_quota_project "$new_project_id"; then
-      ok "Created and set quota project: $new_project_id"
-      quota_set=true
-    else
-      warn "gcloud set-quota-project did not persist. Patching ADC file directly..."
-      if patch_adc_quota_project "$new_project_id" && verify_adc_quota_project "$new_project_id"; then
-        ok "Created and set quota project (patched): $new_project_id"
-        quota_set=true
+if [ -n "$project_id" ]; then
+  if [ "$NONINTERACTIVE" = "1" ]; then
+    set_project_everywhere "$project_id" || true
+    needs_selection=false
+  else
+    printf '   Current project: %s\n' "$project_id"
+    printf '   Use this project? (Y/n/list) '
+    response=""
+    read -r response || response="Y"
+    response="$(printf '%s' "$response" | tr '[:upper:]' '[:lower:]')"
+    case "$response" in
+      ''|y|yes)
+        set_project_everywhere "$project_id" || true
+        needs_selection=false
+        ;;
+      n|no|list|l)
+        needs_selection=true
+        ;;
+      *)
+        set_project_everywhere "$project_id" || true
+        needs_selection=false
+        ;;
+    esac
+  fi
+fi
+
+if [ "$needs_selection" = true ]; then
+  echo '   Fetching your GCP projects...'
+  project_list_raw="$(gcloud projects list --format='value(projectId,name)' --sort-by=~createTime --limit=20 2>/dev/null || true)"
+
+  project_ids=()
+  project_names=()
+  while IFS=$'\t' read -r pid pname; do
+    pid="$(printf '%s' "$pid" | tr -d '[:space:]')"
+    if is_valid_project_id "$pid"; then
+      project_ids+=("$pid")
+      project_names+=("${pname:-}")
+    fi
+  done <<< "$project_list_raw"
+
+  if [ ${#project_ids[@]} -eq 0 ]; then
+    warn 'No existing projects found. Creating a new one...'
+    response='c'
+  else
+    echo ''
+    printf "   ${RESET}Your GCP projects:${RESET}\n"
+    for i in "${!project_ids[@]}"; do
+      num=$((i + 1))
+      display="   [$num] ${project_ids[$i]}"
+      if [ -n "${project_names[$i]}" ] && [ "${project_names[$i]}" != "${project_ids[$i]}" ]; then
+        display+="  (${project_names[$i]})"
       fi
-    fi
+      echo "$display"
+    done
+    echo ''
+    printf "   ${DIM}[E] Enter a project ID manually${RESET}\n"
+    printf "   ${DIM}[C] Create a new project${RESET}\n"
+    echo ''
+    printf '   Select (1-%d, E, or C) ' "${#project_ids[@]}"
+    response=""
+    read -r response || response=""
+    response="$(printf '%s' "$response" | tr -d '[:space:]')"
   fi
+
+  case "$response" in
+    [eE])
+      printf '   Enter project ID: '
+      custom_id=""
+      read -r custom_id || custom_id=""
+      custom_id="$(printf '%s' "$custom_id" | tr -d '[:space:]')"
+      if is_valid_project_id "$custom_id"; then
+        project_id="$custom_id"
+      else
+        fail "Invalid project ID format: $custom_id (must be 6-30 chars: lowercase letters, digits, hyphens)"
+      fi
+      ;;
+    [cC])
+      # --- 6c. Create new project ---
+      consonants='bcdfghjklmnpqrstvwxyz'
+      vowels='aeiou'
+      pick_char() { local s="$1"; local i=$((RANDOM % ${#s})); printf '%s' "${s:$i:1}"; }
+      cvc1="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
+      cvc2="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
+      new_project_id="mcp-${cvc1}-${cvc2}"
+
+      printf '   Creating project %s...\n' "$new_project_id"
+      gcloud projects create "$new_project_id" \
+        || fail "Could not create project $new_project_id."
+      project_id="$new_project_id"
+      ok "Created project: $new_project_id"
+      ;;
+    *)
+      if printf '%s' "$response" | grep -qE '^[0-9]+$'; then
+        num="$response"
+        if [ "$num" -ge 1 ] && [ "$num" -le "${#project_ids[@]}" ]; then
+          project_id="${project_ids[$((num - 1))]}"
+        else
+          fail "Invalid selection: $response"
+        fi
+      else
+        fail "Invalid selection: $response"
+      fi
+      ;;
+  esac
+
+  # --- 6d. Persist project ---
+  set_project_everywhere "$project_id" || true
 fi
 
+quota_set=false
+if [ -n "$project_id" ] && verify_adc_quota_project "$project_id"; then
+  quota_set=true
+fi
 if [ "$quota_set" = false ]; then
   warn 'Could not set quota project. The agent will attempt to resolve this on first use.'
 fi
 
-# --- 6e. Enable required APIs (mirrors bootstrap.ts ensureApisEnabled) ---
-api_project_id=""
-if [ "$quota_set" = true ] && [ -f "$adc_file" ]; then
-  api_project_id="$(grep -o '"quota_project_id"[[:space:]]*:[[:space:]]*"[^"]*"' "$adc_file" 2>/dev/null | head -n 1 | sed 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"//' | sed 's/"//' || true)"
-fi
-if [ -z "$api_project_id" ] && [ -n "$project_id" ]; then
-  api_project_id="$project_id"
-fi
-
-if [ -n "$api_project_id" ]; then
-  printf '   Enabling required APIs on %s...\n' "$api_project_id"
+# --- 6e. Enable required APIs ---
+if [ -n "$project_id" ]; then
+  printf '   Enabling required APIs on %s...\n' "$project_id"
   all_apis_ok=true
   for api in serviceusage.googleapis.com admin.googleapis.com chromemanagement.googleapis.com cloudidentity.googleapis.com; do
-    if ! gcloud services enable "$api" --project "$api_project_id" 2>/dev/null; then
+    if ! gcloud services enable "$api" --project "$project_id" 2>/dev/null; then
       warn "   Could not enable $api (the agent will retry at runtime)."
       all_apis_ok=false
     fi

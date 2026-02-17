@@ -139,10 +139,10 @@ spinner_start() {
     return
   fi
   (
-    chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    chars=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
     i=0
     while true; do
-      printf "\r   ${DIM}%s${RESET} %s" "${chars:$((i % ${#chars})):1}" "$msg"
+      printf "\r   ${DIM}%s${RESET} %s" "${chars[$((i % ${#chars[@]}))]}" "$msg"
       i=$((i + 1))
       sleep 0.1
     done

@@ -30,7 +30,7 @@ async function main(): Promise<void> {
 
   const server = new McpServer(
     {
-      name: "cepbot",
+      name: "cep-mcp-server",
       version: __VERSION__,
     },
     {
@@ -47,8 +47,8 @@ async function main(): Promise<void> {
 
   void server.sendLoggingMessage({
     data: result.ok
-      ? "cepbot MCP server running on stdio"
-      : "cepbot MCP server running in DEGRADED mode on stdio",
+      ? "cep-mcp-server running on stdio"
+      : "cep-mcp-server running in DEGRADED mode on stdio",
     level: result.ok ? "info" : "warning",
     logger: "server",
   });

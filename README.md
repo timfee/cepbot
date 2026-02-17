@@ -1,3 +1,7 @@
+> **Note:** This interactive experience should be considered a Product
+> Requirements Document. It is not intended for live, customer use, nor does it
+> have an actual path to production.
+
 # Chrome Enterprise Premium MCP Server
 
 An unofficial Model Context Protocol (MCP) server for managing Chrome Enterprise
@@ -18,7 +22,7 @@ and start Gemini CLI to begin using the extension.
 ## Architecture
 
 ```
-cepbot/
+cep-mcp-server/
   gemini-extension.json      Extension manifest
   hooks/                     Gemini extension hooks
     hooks.json

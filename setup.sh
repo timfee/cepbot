@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Chrome Enterprise Premium Bot — macOS / Linux Setup
+# CEP MCP Server — macOS / Linux Setup
 #
 # Installs Node.js, Google Cloud CLI, and Gemini CLI, then authenticates
-# with the required OAuth scopes and installs the cepbot Gemini extension.
+# with the required OAuth scopes and installs the CEP MCP Server Gemini extension.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/timfee/cepbot/main/setup.sh | bash
@@ -56,22 +56,118 @@ if [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
   fi
 fi
 
+# ---------- configuration ----------------------------------------------------
+# Centralized settings — edit these instead of hunting through the script body.
+
+PRODUCT_NAME="CEP MCP Server"
+GITHUB_URL="https://github.com/timfee/cepbot"
+EXTENSION_ID="chrome-enterprise-premium"
+
+MIN_NODE_VERSION=20
+INSTALL_NODE_VERSION=22
+
+OAUTH_SCOPES=(
+  "https://www.googleapis.com/auth/admin.directory.customer.readonly"
+  "https://www.googleapis.com/auth/admin.directory.orgunit.readonly"
+  "https://www.googleapis.com/auth/admin.reports.audit.readonly"
+  "https://www.googleapis.com/auth/chrome.management.policy"
+  "https://www.googleapis.com/auth/chrome.management.profiles.readonly"
+  "https://www.googleapis.com/auth/chrome.management.reports.readonly"
+  "https://www.googleapis.com/auth/cloud-identity.policies"
+  "https://www.googleapis.com/auth/cloud-platform"
+)
+SCOPES_CSV="$(IFS=,; printf '%s' "${OAUTH_SCOPES[*]}")"
+
+REQUIRED_APIS=(
+  "serviceusage.googleapis.com"
+  "admin.googleapis.com"
+  "chromemanagement.googleapis.com"
+  "cloudidentity.googleapis.com"
+)
+
+PROJECT_ID_REGEX='^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+PROJECT_LIST_LIMIT=20
+
+STEP_TITLES=(
+  "Homebrew / Package manager"
+  "Node.js (>= ${MIN_NODE_VERSION})"
+  "Google Cloud CLI"
+  "Gemini CLI"
+  "Google Cloud authentication"
+  "GCP quota project"
+  "Gemini CLI configuration"
+  "Install ${PRODUCT_NAME} Gemini extension"
+)
+TOTAL_STEPS=${#STEP_TITLES[@]}
+CURRENT_STEP=0
+
 # ---------- helpers -----------------------------------------------------------
 
 if [ -t 1 ]; then
+  BOLD='\033[1m'
   CYAN='\033[36m'  GREEN='\033[32m'  DIM='\033[90m'
   YELLOW='\033[33m'  RED='\033[31m'  RESET='\033[0m'
 else
-  CYAN=''  GREEN=''  DIM=''  YELLOW=''  RED=''  RESET=''
+  BOLD=''  CYAN=''  GREEN=''  DIM=''  YELLOW=''  RED=''  RESET=''
 fi
 
-step()  { printf "\n${CYAN}>> %s${RESET}\n" "$1"; }
+step() {
+  CURRENT_STEP=$((CURRENT_STEP + 1))
+  local title="${1:-${STEP_TITLES[$((CURRENT_STEP - 1))]}}"
+  printf "\n${CYAN}[${CURRENT_STEP}/${TOTAL_STEPS}]  %s${RESET}\n" "$title"
+}
+
 ok()    { printf "   ${GREEN}%s${RESET}\n" "$1"; }
 skip()  { printf "   ${DIM}%s (already installed)${RESET}\n" "$1"; }
 warn()  { printf "   ${YELLOW}%s${RESET}\n" "$1" >&2; }
 fail()  { printf "   ${RED}ERROR: %s${RESET}\n" "$1" >&2; exit 1; }
 
 has() { command -v "$1" >/dev/null 2>&1; }
+
+is_valid_project_id() {
+  printf '%s' "$1" | grep -qE "$PROJECT_ID_REGEX"
+}
+
+# ---------- spinner -----------------------------------------------------------
+
+SPINNER_PID=""
+
+spinner_start() {
+  local msg="${1:-Working...}"
+  if [ ! -t 1 ] || [ "$NONINTERACTIVE" = "1" ]; then
+    printf "   %s\n" "$msg"
+    return
+  fi
+  (
+    chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    i=0
+    while true; do
+      printf "\r   ${DIM}%s${RESET} %s" "${chars:$((i % ${#chars})):1}" "$msg"
+      i=$((i + 1))
+      sleep 0.1
+    done
+  ) &
+  SPINNER_PID=$!
+}
+
+spinner_stop() {
+  local status="$1"
+  local msg="$2"
+  if [ -n "$SPINNER_PID" ]; then
+    kill "$SPINNER_PID" 2>/dev/null
+    wait "$SPINNER_PID" 2>/dev/null || true
+    SPINNER_PID=""
+    printf "\r\033[K"
+  fi
+  case "$status" in
+    ok)   ok "$msg" ;;
+    skip) skip "$msg" ;;
+    warn) warn "$msg" ;;
+    fail) printf "   ${RED}ERROR: %s${RESET}\n" "$msg" >&2; exit 1 ;;
+  esac
+}
+
+# ---------- sudo / cleanup ----------------------------------------------------
 
 USED_SUDO=0
 TMPFILES=()
@@ -85,6 +181,9 @@ run_sudo() {
 }
 
 cleanup() {
+  if [ -n "${SPINNER_PID:-}" ]; then
+    kill "$SPINNER_PID" 2>/dev/null || true
+  fi
   # ${#arr[@]} is safe under set -u on bash 3.2; ${arr[@]} is not.
   if [ ${#TMPFILES[@]} -gt 0 ]; then
     for f in "${TMPFILES[@]}"; do rm -f "$f"; done
@@ -98,8 +197,21 @@ trap cleanup EXIT
 # ---------- pre-flight --------------------------------------------------------
 
 echo ''
-echo '  Chrome Enterprise Premium Bot — Setup'
-echo '  ======================================'
+printf "  ${BOLD}${CYAN}%s${RESET}\n" "$PRODUCT_NAME"
+# Auto-sized underline
+_underline=""
+i=0
+while [ "$i" -lt "${#PRODUCT_NAME}" ]; do _underline="${_underline}─"; i=$((i + 1)); done
+printf "  ${DIM}%s${RESET}\n" "$_underline"
+printf "  ${DIM}macOS / Linux Setup${RESET}\n"
+echo ''
+printf "  ${YELLOW}┌─────────────────────────────────────────────────────────────┐${RESET}\n"
+printf "  ${YELLOW}│  This interactive experience should be considered a         │${RESET}\n"
+printf "  ${YELLOW}│  Product Requirements Document.                             │${RESET}\n"
+printf "  ${YELLOW}│                                                             │${RESET}\n"
+printf "  ${YELLOW}│  It is not intended for live, customer use, nor does it     │${RESET}\n"
+printf "  ${YELLOW}│  have an actual path to production.                         │${RESET}\n"
+printf "  ${YELLOW}└─────────────────────────────────────────────────────────────┘${RESET}\n"
 echo ''
 
 has curl || fail "'curl' is required but not found. Please install it first."
@@ -113,13 +225,14 @@ fi
 # ---------- 1. Homebrew (macOS only) / package manager check ------------------
 
 if [ "$OS" = "Darwin" ]; then
-  step '1/8  Homebrew'
+  step 'Homebrew'
 
   if has brew; then
     skip "brew $(brew --version 2>&1 | sed -n '1p')"
   else
-    echo '   Installing Homebrew...'
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    spinner_start 'Installing Homebrew...'
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" > /dev/null 2>&1
+    spinner_stop ok 'Homebrew installed'
 
     # Add brew to PATH for Apple Silicon
     if [ -f /opt/homebrew/bin/brew ]; then
@@ -127,55 +240,60 @@ if [ "$OS" = "Darwin" ]; then
     fi
   fi
 else
-  step '1/8  Package manager'
+  step 'Package manager'
   ok "Using system package manager ($OS)"
 fi
 
 # ---------- 2. Node.js -------------------------------------------------------
 
-step '2/8  Node.js (>= 20)'
+step
 
 install_node() {
   if [ "$OS" = "Darwin" ]; then
-    brew install node@22
+    spinner_start "Installing Node.js ${INSTALL_NODE_VERSION}..."
+    brew install "node@${INSTALL_NODE_VERSION}" > /dev/null 2>&1
     # node@22 is keg-only; link it to make it available on PATH
-    brew link --force --overwrite node@22 2>/dev/null || true
+    brew link --force --overwrite "node@${INSTALL_NODE_VERSION}" 2>/dev/null || true
+    spinner_stop ok "Node.js ${INSTALL_NODE_VERSION} installed via brew"
     # Fall back to adding the keg's bin directly
     if ! has node; then
-      export PATH="/opt/homebrew/opt/node@22/bin:/usr/local/opt/node@22/bin:$PATH"
+      export PATH="/opt/homebrew/opt/node@${INSTALL_NODE_VERSION}/bin:/usr/local/opt/node@${INSTALL_NODE_VERSION}/bin:$PATH"
     fi
   elif has apt-get; then
     local setup_script
     setup_script="$(mktemp)"
     TMPFILES+=("$setup_script")
-    curl -fsSL https://deb.nodesource.com/setup_22.x -o "$setup_script"
-    run_sudo bash "$setup_script"
+    spinner_start "Installing Node.js ${INSTALL_NODE_VERSION}..."
+    curl -fsSL "https://deb.nodesource.com/setup_${INSTALL_NODE_VERSION}.x" -o "$setup_script"
+    run_sudo bash "$setup_script" > /dev/null 2>&1
     rm -f "$setup_script"
-    run_sudo apt-get install -y nodejs
+    run_sudo apt-get install -y nodejs > /dev/null 2>&1
+    spinner_stop ok "Node.js ${INSTALL_NODE_VERSION} installed via apt"
   elif has dnf; then
     local setup_script
     setup_script="$(mktemp)"
     TMPFILES+=("$setup_script")
-    curl -fsSL https://rpm.nodesource.com/setup_22.x -o "$setup_script"
-    run_sudo bash "$setup_script"
+    spinner_start "Installing Node.js ${INSTALL_NODE_VERSION}..."
+    curl -fsSL "https://rpm.nodesource.com/setup_${INSTALL_NODE_VERSION}.x" -o "$setup_script"
+    run_sudo bash "$setup_script" > /dev/null 2>&1
     rm -f "$setup_script"
-    run_sudo dnf install -y nodejs
+    run_sudo dnf install -y nodejs > /dev/null 2>&1
+    spinner_stop ok "Node.js ${INSTALL_NODE_VERSION} installed via dnf"
   else
-    fail 'Unsupported package manager. Install Node.js 20+ manually: https://nodejs.org'
+    fail "Unsupported package manager. Install Node.js ${MIN_NODE_VERSION}+ manually: https://nodejs.org"
   fi
 }
 
 if has node; then
   node_version="$(node --version | sed 's/^v//')"
   node_major="${node_version%%.*}"
-  if [ "$node_major" -ge 20 ] 2>/dev/null; then
+  if [ "$node_major" -ge "$MIN_NODE_VERSION" ] 2>/dev/null; then
     skip "node v${node_version}"
   else
     warn "Found node v${node_version} — upgrading..."
     install_node
   fi
 else
-  echo '   Installing Node.js 22...'
   install_node
 fi
 
@@ -185,21 +303,22 @@ has npm  || fail 'npm is not on PATH. The Node.js installation may be incomplete
 # Re-check version after any install/upgrade
 node_version="$(node --version | sed 's/^v//')"
 node_major="${node_version%%.*}"
-if ! [ "$node_major" -ge 20 ] 2>/dev/null; then
-  fail "node v${node_version} is on PATH but >= 20 is required. Remove the old version or adjust PATH."
+if ! [ "$node_major" -ge "$MIN_NODE_VERSION" ] 2>/dev/null; then
+  fail "node v${node_version} is on PATH but >= ${MIN_NODE_VERSION} is required. Remove the old version or adjust PATH."
 fi
 ok "node v${node_version}"
 
 # ---------- 3. Google Cloud CLI -----------------------------------------------
 
-step '3/8  Google Cloud CLI'
+step
 
 if has gcloud; then
   skip "gcloud $(gcloud version 2>&1 | sed -n '1p')"
 else
-  echo '   Installing Google Cloud CLI (this may take a few minutes)...'
   if [ "$OS" = "Darwin" ]; then
-    brew install --cask google-cloud-sdk
+    spinner_start 'Installing Google Cloud CLI...'
+    brew install --cask google-cloud-sdk > /dev/null 2>&1
+    spinner_stop ok 'Google Cloud CLI installed via brew'
     # The cask doesn't symlink gcloud into bin; source its PATH script
     for _gcloud_inc in \
       "$(brew --prefix 2>/dev/null)/share/google-cloud-sdk/path.bash.inc" \
@@ -213,17 +332,21 @@ else
     done
   elif has apt-get; then
     if ! has gpg; then
-      echo '   Installing gnupg (needed for repository signing)...'
-      run_sudo apt-get install -y gnupg
+      spinner_start 'Installing gnupg...'
+      run_sudo apt-get install -y gnupg > /dev/null 2>&1
+      spinner_stop ok 'gnupg installed'
     fi
+    spinner_start 'Installing Google Cloud CLI...'
     curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
-      | run_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg
+      | run_sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg 2>/dev/null
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
       | run_sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list > /dev/null
-    run_sudo apt-get update \
-      || fail 'apt-get update failed after adding the Google Cloud repository.'
-    run_sudo apt-get install -y google-cloud-cli
+    run_sudo apt-get update > /dev/null 2>&1 \
+      || { spinner_stop fail 'apt-get update failed after adding the Google Cloud repository.'; }
+    run_sudo apt-get install -y google-cloud-cli > /dev/null 2>&1
+    spinner_stop ok 'Google Cloud CLI installed via apt'
   elif has dnf; then
+    spinner_start 'Installing Google Cloud CLI...'
     run_sudo tee /etc/yum.repos.d/google-cloud-sdk.repo > /dev/null <<REPO
 [google-cloud-cli]
 name=Google Cloud CLI
@@ -233,7 +356,8 @@ gpgcheck=1
 repo_gpgcheck=0
 gpgkey=https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
 REPO
-    run_sudo dnf install -y google-cloud-cli
+    run_sudo dnf install -y google-cloud-cli > /dev/null 2>&1
+    spinner_stop ok 'Google Cloud CLI installed via dnf'
   else
     fail 'Unsupported package manager. Install gcloud manually: https://cloud.google.com/sdk/docs/install'
   fi
@@ -244,7 +368,7 @@ ok 'gcloud CLI ready'
 
 # ---------- 4. Gemini CLI ----------------------------------------------------
 
-step '4/8  Gemini CLI'
+step
 
 gemini_installed=0
 if has gemini; then
@@ -256,8 +380,9 @@ fi
 if [ "$gemini_installed" = "1" ]; then
   skip 'gemini'
 else
-  echo '   Installing Gemini CLI globally...'
-  npm install -g @google/gemini-cli || fail 'Failed to install Gemini CLI via npm.'
+  spinner_start 'Installing Gemini CLI globally...'
+  npm install -g @google/gemini-cli > /dev/null 2>&1 || { spinner_stop fail 'Failed to install Gemini CLI via npm.'; }
+  spinner_stop ok 'Gemini CLI installed'
 fi
 
 has gemini || fail 'gemini is not on PATH. Check that npm global bin is in your PATH.'
@@ -265,14 +390,14 @@ ok 'gemini CLI ready'
 
 # ---------- 5. Authenticate ---------------------------------------------------
 
-step '5/8  Google Cloud authentication'
+step
 
 # --- 5a. gcloud CLI auth (needed for gcloud commands during setup) ---
 echo '   Checking gcloud CLI auth...'
 active_account="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' 2>/dev/null | head -n 1 || true)"
 
 if [ -n "$active_account" ]; then
-  ok "gcloud CLI authenticated as $active_account"
+  ok "gcloud CLI authenticated as ${BOLD}${active_account}${RESET}"
   if [ "$NONINTERACTIVE" = "1" ]; then
     :
   else
@@ -293,21 +418,12 @@ fi
 # --- 5b. ADC auth (used by the MCP server at runtime) ---
 echo '   Checking Application Default Credentials (ADC)...'
 
-SCOPES="https://www.googleapis.com/auth/admin.directory.customer.readonly"
-SCOPES+=",https://www.googleapis.com/auth/admin.directory.orgunit.readonly"
-SCOPES+=",https://www.googleapis.com/auth/admin.reports.audit.readonly"
-SCOPES+=",https://www.googleapis.com/auth/chrome.management.policy"
-SCOPES+=",https://www.googleapis.com/auth/chrome.management.profiles.readonly"
-SCOPES+=",https://www.googleapis.com/auth/chrome.management.reports.readonly"
-SCOPES+=",https://www.googleapis.com/auth/cloud-identity.policies"
-SCOPES+=",https://www.googleapis.com/auth/cloud-platform"
-
 ADC_PATH="${HOME}/.config/gcloud/application_default_credentials.json"
 
 do_adc_auth() {
   echo '   A browser window will open for ADC sign-in...'
   printf "   ${DIM}Note: ADC uses a separate OAuth client from gcloud CLI — a second browser prompt is expected.${RESET}\n"
-  gcloud auth application-default login --scopes="$SCOPES" \
+  gcloud auth application-default login --scopes="$SCOPES_CSV" \
     || fail 'ADC authentication failed or was cancelled. Re-run to try again.'
   ok 'ADC authenticated with required scopes'
 }
@@ -333,14 +449,10 @@ fi
 
 # ---------- 6. Quota project --------------------------------------------------
 
-step '6/8  GCP quota project'
+step
 
 adc_file="${HOME}/.config/gcloud/application_default_credentials.json"
 project_id=""
-
-is_valid_project_id() {
-  printf '%s' "$1" | grep -qE '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
-}
 
 # Helper: directly patch quota_project_id into the ADC JSON file when
 # the gcloud CLI command fails.
@@ -372,7 +484,7 @@ set_project_everywhere() {
     patch_adc_quota_project "$pid" || true
   fi
   if verify_adc_quota_project "$pid"; then
-    ok "Project set: $pid"
+    ok "Project set: ${BOLD}${pid}${RESET}"
     return 0
   else
     warn "Could not persist project $pid to ADC file."
@@ -404,7 +516,7 @@ if [ -n "$project_id" ]; then
     set_project_everywhere "$project_id" || true
     needs_selection=false
   else
-    printf '   Current project: %s\n' "$project_id"
+    printf "   Current project: ${BOLD}%s${RESET}\n" "$project_id"
     printf '   Use this project? (Y/n/list) '
     response=""
     read -r response || response="Y"
@@ -431,8 +543,9 @@ if [ "$needs_selection" = true ] && [ "$NONINTERACTIVE" = "1" ]; then
 fi
 
 if [ "$needs_selection" = true ]; then
-  echo '   Fetching your GCP projects...'
-  project_list_raw="$(gcloud projects list --format='value(projectId,name)' --sort-by=~createTime --limit=20 2>/dev/null || true)"
+  spinner_start 'Fetching your GCP projects...'
+  project_list_raw="$(gcloud projects list --format='value(projectId,name)' --sort-by=~createTime --limit="$PROJECT_LIST_LIMIT" 2>/dev/null || true)"
+  spinner_stop ok 'Projects loaded'
 
   project_ids=()
   project_names=()
@@ -449,18 +562,24 @@ if [ "$needs_selection" = true ]; then
     response='c'
   else
     echo ''
-    printf "   ${RESET}Your GCP projects:${RESET}\n"
+    printf "   ${DIM}────────────────────────────────${RESET}\n"
+    printf "   ${BOLD}Your GCP projects:${RESET}\n\n"
     for i in "${!project_ids[@]}"; do
       num=$((i + 1))
-      display="   [$num] ${project_ids[$i]}"
-      if [ -n "${project_names[$i]}" ] && [ "${project_names[$i]}" != "${project_ids[$i]}" ]; then
-        display+="  (${project_names[$i]})"
+      if [ "${project_ids[$i]}" = "$project_id" ]; then
+        printf "   ${GREEN}[%d] %s${RESET}" "$num" "${project_ids[$i]}"
+      else
+        printf "   [%d] %s" "$num" "${project_ids[$i]}"
       fi
-      echo "$display"
+      if [ -n "${project_names[$i]}" ] && [ "${project_names[$i]}" != "${project_ids[$i]}" ]; then
+        printf "  ${DIM}(%s)${RESET}" "${project_names[$i]}"
+      fi
+      echo ''
     done
     echo ''
     printf "   ${DIM}[E] Enter a project ID manually${RESET}\n"
     printf "   ${DIM}[C] Create a new project${RESET}\n"
+    printf "   ${DIM}────────────────────────────────${RESET}\n"
     echo ''
     printf '   Select (1-%d, E, or C) ' "${#project_ids[@]}"
     response=""
@@ -489,11 +608,11 @@ if [ "$needs_selection" = true ]; then
       cvc2="$(pick_char "$consonants")$(pick_char "$vowels")$(pick_char "$consonants")"
       new_project_id="mcp-${cvc1}-${cvc2}"
 
-      printf '   Creating project %s...\n' "$new_project_id"
-      gcloud projects create "$new_project_id" \
-        || fail "Could not create project $new_project_id."
+      spinner_start "Creating project ${new_project_id}..."
+      gcloud projects create "$new_project_id" > /dev/null 2>&1 \
+        || { spinner_stop fail "Could not create project $new_project_id."; }
+      spinner_stop ok "Created project: ${new_project_id}"
       project_id="$new_project_id"
-      ok "Created project: $new_project_id"
       ;;
     *)
       if printf '%s' "$response" | grep -qE '^[0-9]+$'; then
@@ -523,22 +642,23 @@ fi
 
 # --- 6e. Enable required APIs ---
 if [ -n "$project_id" ]; then
-  printf '   Enabling required APIs on %s...\n' "$project_id"
+  spinner_start "Enabling required APIs on ${project_id}..."
   all_apis_ok=true
-  for api in serviceusage.googleapis.com admin.googleapis.com chromemanagement.googleapis.com cloudidentity.googleapis.com; do
+  for api in "${REQUIRED_APIS[@]}"; do
     if ! gcloud services enable "$api" --project "$project_id" 2>/dev/null; then
-      warn "   Could not enable $api (the agent will retry at runtime)."
       all_apis_ok=false
     fi
   done
   if [ "$all_apis_ok" = true ]; then
-    ok 'All required APIs enabled.'
+    spinner_stop ok 'All required APIs enabled'
+  else
+    spinner_stop warn 'Some APIs could not be enabled (the agent will retry at runtime)'
   fi
 fi
 
 # ---------- 7. Gemini CLI configuration ----------------------------------------
 
-step '7/8  Gemini CLI configuration'
+step
 
 GEMINI_DIR="${HOME}/.gemini"
 GEMINI_SETTINGS="${GEMINI_DIR}/settings.json"
@@ -561,26 +681,26 @@ SETTINGS
   ok 'Configured Gemini CLI to use Google login'
 fi
 
-# ---------- 7. Install extension ----------------------------------------------
+# ---------- 8. Install extension ----------------------------------------------
 
-step '8/8  Install cepbot Gemini extension'
+step
 
 # Uninstall first if already present — reinstalling over an existing
 # extension crashes the Gemini CLI with a libuv assertion failure.
-gemini extensions uninstall chrome-enterprise-premium 2>/dev/null || true
+gemini extensions uninstall "$EXTENSION_ID" 2>/dev/null || true
 
-echo '   Registering extension...'
+spinner_start 'Registering extension...'
 # Pipe "Y" to auto-confirm the install prompt — without this, piped/
 # non-interactive sessions get EOF and the install silently skips.
 install_rc=0
-echo "Y" | gemini extensions install https://github.com/timfee/cepbot 2>&1 || install_rc=$?
+echo "Y" | gemini extensions install "$GITHUB_URL" > /dev/null 2>&1 || install_rc=$?
 
 enablement_file="${HOME}/.gemini/extensions/extension-enablement.json"
 
 if [ "$install_rc" -eq 41 ]; then
+  spinner_stop warn 'Extension install needs Gemini CLI authentication first.'
   # Exit code 41 = FatalAuthenticationError.  Launch gemini interactively
   # so the user can complete the browser sign-in, then retry.
-  warn 'Extension install needs Gemini CLI authentication first.'
   echo ''
   printf "   ${YELLOW}Launching Gemini CLI for first-time sign-in.${RESET}\n"
   printf "   ${YELLOW}A browser window will open - complete the sign-in there.${RESET}\n"
@@ -588,24 +708,37 @@ if [ "$install_rc" -eq 41 ]; then
   echo ''
   gemini || true
   echo ''
-  echo '   Retrying extension install...'
-  echo "Y" | gemini extensions install https://github.com/timfee/cepbot 2>&1 \
+  spinner_start 'Retrying extension install...'
+  echo "Y" | gemini extensions install "$GITHUB_URL" > /dev/null 2>&1 \
     || true
 fi
 
 # Verify the extension actually registered (exit codes are unreliable
 # due to the libuv assertion crash).
-if [ -f "$enablement_file" ] && grep -q '"chrome-enterprise-premium"' "$enablement_file" 2>/dev/null; then
-  ok 'cepbot extension installed'
+if [ -f "$enablement_file" ] && grep -q "\"${EXTENSION_ID}\"" "$enablement_file" 2>/dev/null; then
+  spinner_stop ok "${PRODUCT_NAME} extension installed"
 else
-  fail 'Extension install did not register. Try manually: gemini extensions install https://github.com/timfee/cepbot'
+  spinner_stop fail "Extension install did not register. Try manually: gemini extensions install ${GITHUB_URL}"
 fi
 
 # ---------- done --------------------------------------------------------------
 
 echo ''
-printf "  ${GREEN}Setup complete!${RESET}\n"
-echo '  Run "gemini" to start using the Chrome Enterprise Premium Bot.'
+printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+printf "  ${GREEN}${BOLD}Setup complete!${RESET}\n"
+printf "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+echo ''
+printf "   ${BOLD}Node.js${RESET}     %s\n" "$(node --version)"
+printf "   ${BOLD}gcloud${RESET}      %s\n" "$(gcloud version 2>&1 | head -1)"
+printf "   ${BOLD}Gemini CLI${RESET}  installed\n"
+if [ -n "${project_id:-}" ]; then
+  printf "   ${BOLD}Project${RESET}     %s\n" "$project_id"
+fi
+if [ -n "${active_account:-}" ]; then
+  printf "   ${BOLD}Account${RESET}     %s\n" "$active_account"
+fi
+echo ''
+printf '  Run "gemini" to start using %s.\n' "$PRODUCT_NAME"
 echo ''
 
 } # end main

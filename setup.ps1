@@ -1,11 +1,11 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Sets up a Windows machine for Chrome Enterprise Premium Bot (cepbot).
+    Sets up a Windows machine for CEP MCP Server.
 
 .DESCRIPTION
     Installs Git, Node.js, Google Cloud CLI, and Gemini CLI, then authenticates
-    with the required OAuth scopes and installs the cepbot Gemini extension.
+    with the required OAuth scopes and installs the CEP MCP Server Gemini extension.
 
     Skips any tool that is already installed and on PATH.
 
@@ -23,14 +23,58 @@
 
 # Wrap in a function so Set-StrictMode, $ErrorActionPreference, and early
 # returns do not leak into the caller's session (important for irm | iex).
-function Invoke-CepbotSetup {
+function Invoke-CepMcpServerSetup {
     Set-StrictMode -Version Latest
     $ErrorActionPreference = 'Stop'
 
+    # ---------- configuration ------------------------------------------------
+    # Centralized settings — edit these instead of hunting through the script body.
+
+    $ProductName        = 'CEP MCP Server'
+    $GitHubUrl          = 'https://github.com/timfee/cepbot'
+    $ExtensionId        = 'chrome-enterprise-premium'
+    $MinNodeVersion     = 20
+
+    $OAuthScopes = @(
+        'https://www.googleapis.com/auth/admin.directory.customer.readonly'
+        'https://www.googleapis.com/auth/admin.directory.orgunit.readonly'
+        'https://www.googleapis.com/auth/admin.reports.audit.readonly'
+        'https://www.googleapis.com/auth/chrome.management.policy'
+        'https://www.googleapis.com/auth/chrome.management.profiles.readonly'
+        'https://www.googleapis.com/auth/chrome.management.reports.readonly'
+        'https://www.googleapis.com/auth/cloud-identity.policies'
+        'https://www.googleapis.com/auth/cloud-platform'
+    ) -join ','
+
+    $RequiredApis = @(
+        'serviceusage.googleapis.com'
+        'admin.googleapis.com'
+        'chromemanagement.googleapis.com'
+        'cloudidentity.googleapis.com'
+    )
+
+    $ProjectIdPattern   = '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+    $ProjectListLimit   = 20
+
+    $StepTitles = @(
+        'Git'
+        "Node.js (>= $MinNodeVersion)"
+        'Google Cloud CLI'
+        'Gemini CLI'
+        'Google Cloud authentication'
+        'GCP quota project'
+        'Gemini CLI configuration'
+        "Install $ProductName Gemini extension"
+    )
+    $TotalSteps  = $StepTitles.Count
+    $CurrentStep = 0
+
+    # ---------- console encoding ---------------------------------------------
+
     # Tell the console to decode native-command output as UTF-8.
     # Without this, tools like winget emit UTF-8 (e.g. progress-bar
-    # block characters █▒) but PowerShell decodes the bytes using the
-    # system OEM code page (usually CP437), producing mojibake like ΓûêΓûÆ.
+    # block characters) but PowerShell decodes the bytes using the
+    # system OEM code page (usually CP437), producing mojibake.
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
     # Remember where the user started so we can restore it when we're done.
@@ -53,7 +97,9 @@ function Invoke-CepbotSetup {
 
     function Write-Step {
         param([string]$Message)
-        Write-Host "`n>> $Message" -ForegroundColor Cyan
+        $script:CurrentStep++
+        $label = if ($Message) { $Message } else { $StepTitles[$script:CurrentStep - 1] }
+        Write-Host "`n[$script:CurrentStep/$TotalSteps]  $label" -ForegroundColor Cyan
     }
 
     function Write-Ok {
@@ -74,6 +120,29 @@ function Invoke-CepbotSetup {
     function Write-Fail {
         param([string]$Message)
         Write-Host "   ERROR: $Message" -ForegroundColor Red
+    }
+
+    function Write-Activity {
+        param([string]$Message)
+        Write-Host "   $Message" -ForegroundColor DarkGray -NoNewline
+    }
+
+    function Complete-Activity {
+        param(
+            [ValidateSet('Ok','Skip','Warn','Fail')]
+            [string]$Status,
+            [string]$Message
+        )
+        # Move to beginning of line and clear it
+        $width = try { [Console]::WindowWidth } catch { 80 }
+        Write-Host ("`r" + (' ' * ($width - 1))) -NoNewline
+        Write-Host "`r" -NoNewline
+        switch ($Status) {
+            'Ok'   { Write-Ok $Message }
+            'Skip' { Write-Skip $Message }
+            'Warn' { Write-Warn $Message }
+            'Fail' { Write-Fail $Message }
+        }
     }
 
     function Test-Command {
@@ -152,8 +221,18 @@ function Invoke-CepbotSetup {
     # ------ pre-flight -------------------------------------------------------
 
     Write-Host ''
-    Write-Host '  Chrome Enterprise Premium Bot - Windows Setup' -ForegroundColor White
-    Write-Host '  ==============================================' -ForegroundColor DarkGray
+    Write-Host "  $ProductName" -ForegroundColor Cyan
+    $underline = [string]::new([char]0x2500, $ProductName.Length)
+    Write-Host "  $underline" -ForegroundColor DarkGray
+    Write-Host '  Windows Setup' -ForegroundColor DarkGray
+    Write-Host ''
+    Write-Host '  +-------------------------------------------------------------+' -ForegroundColor Yellow
+    Write-Host '  |  This interactive experience should be considered a          |' -ForegroundColor Yellow
+    Write-Host '  |  Product Requirements Document.                              |' -ForegroundColor Yellow
+    Write-Host '  |                                                              |' -ForegroundColor Yellow
+    Write-Host '  |  It is not intended for live, customer use, nor does it      |' -ForegroundColor Yellow
+    Write-Host '  |  have an actual path to production.                          |' -ForegroundColor Yellow
+    Write-Host '  +-------------------------------------------------------------+' -ForegroundColor Yellow
     Write-Host ''
 
     # Verify winget is available
@@ -166,18 +245,19 @@ function Invoke-CepbotSetup {
 
     # ------ 1. Git -----------------------------------------------------------
 
-    Write-Step '1/8  Git'
+    Write-Step
 
     if (Test-Command 'git') {
         $gitVersion = Invoke-Native { git --version } | Out-String
         Write-Skip ($gitVersion.Trim())
     }
     else {
-        Write-Host '   Installing Git...'
+        Write-Activity 'Installing Git...'
         Write-UacWarning
         Invoke-Native { winget install --id Git.Git --source winget --silent --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Git install')) { return }
         Update-SessionPath
+        Complete-Activity -Status Ok -Message 'git installed'
     }
 
     if (-not (Test-Command 'git')) {
@@ -189,12 +269,12 @@ function Invoke-CepbotSetup {
 
     # ------ 2. Node.js ------------------------------------------------------
 
-    Write-Step '2/8  Node.js (>= 20)'
+    Write-Step
 
     if (Test-Command 'node') {
         $nodeVersion = (node --version) -replace '^v', ''
         $nodeMajor = [int]($nodeVersion -split '\.')[0]
-        if ($nodeMajor -ge 20) {
+        if ($nodeMajor -ge $MinNodeVersion) {
             Write-Skip "node $nodeVersion"
         }
         else {
@@ -206,11 +286,12 @@ function Invoke-CepbotSetup {
         }
     }
     else {
-        Write-Host '   Installing Node.js LTS...'
+        Write-Activity 'Installing Node.js LTS...'
         Write-UacWarning
         Invoke-Native { winget install --id OpenJS.NodeJS.LTS --source winget --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Node.js install')) { return }
         Update-SessionPath
+        Complete-Activity -Status Ok -Message 'Node.js installed'
     }
 
     if (-not (Test-Command 'node')) {
@@ -227,8 +308,8 @@ function Invoke-CepbotSetup {
     # Re-check version after any install/upgrade
     $nodeVersion = (node --version) -replace '^v', ''
     $nodeMajor = [int]($nodeVersion -split '\.')[0]
-    if ($nodeMajor -lt 20) {
-        Write-Fail "node $nodeVersion is on PATH but >= 20 is required. Remove the old version or adjust PATH."
+    if ($nodeMajor -lt $MinNodeVersion) {
+        Write-Fail "node $nodeVersion is on PATH but >= $MinNodeVersion is required. Remove the old version or adjust PATH."
         return
     }
     Write-Ok "node $nodeVersion"
@@ -243,17 +324,18 @@ function Invoke-CepbotSetup {
 
     # ------ 3. Google Cloud CLI ----------------------------------------------
 
-    Write-Step '3/8  Google Cloud CLI'
+    Write-Step
 
     if (Test-Command 'gcloud') {
         $gcloudVer = Invoke-Native { gcloud version } | Select-Object -First 1
         Write-Skip "gcloud $gcloudVer"
     }
     else {
-        Write-Host '   Installing Google Cloud CLI (this may take a few minutes)...'
+        Write-Activity 'Installing Google Cloud CLI...'
         Invoke-Native { winget install --id Google.CloudSDK --source winget --silent --accept-source-agreements --accept-package-agreements }
         if (-not (Assert-ExitCode 'Google Cloud CLI install')) { return }
         Update-SessionPath
+        Complete-Activity -Status Ok -Message 'Google Cloud CLI installed'
     }
 
     if (-not (Test-Command 'gcloud')) {
@@ -282,7 +364,7 @@ function Invoke-CepbotSetup {
 
     # ------ 4. Gemini CLI ---------------------------------------------------
 
-    Write-Step '4/8  Gemini CLI'
+    Write-Step
 
     $geminiInstalled = Test-Command 'gemini'
     if (-not $geminiInstalled -and (Test-Command 'npm')) {
@@ -294,9 +376,10 @@ function Invoke-CepbotSetup {
         Write-Skip 'gemini'
     }
     else {
-        Write-Host '   Installing Gemini CLI globally...'
+        Write-Activity 'Installing Gemini CLI globally...'
         Invoke-Native { npm install -g @google/gemini-cli }
         if (-not (Assert-ExitCode 'Gemini CLI install')) { return }
+        Complete-Activity -Status Ok -Message 'Gemini CLI installed'
     }
 
     if (-not (Test-Command 'gemini')) {
@@ -312,7 +395,7 @@ function Invoke-CepbotSetup {
 
     # ------ 5. Authenticate --------------------------------------------------
 
-    Write-Step '5/8  Google Cloud authentication'
+    Write-Step
 
     # --- 5a. gcloud CLI auth (needed for gcloud commands during setup) ---
     Write-Host '   Checking gcloud CLI auth...'
@@ -351,17 +434,6 @@ function Invoke-CepbotSetup {
     # --- 5b. ADC auth (used by the MCP server at runtime) ---
     Write-Host '   Checking Application Default Credentials (ADC)...'
 
-    $scopes = @(
-        'https://www.googleapis.com/auth/admin.directory.customer.readonly'
-        'https://www.googleapis.com/auth/admin.directory.orgunit.readonly'
-        'https://www.googleapis.com/auth/admin.reports.audit.readonly'
-        'https://www.googleapis.com/auth/chrome.management.policy'
-        'https://www.googleapis.com/auth/chrome.management.profiles.readonly'
-        'https://www.googleapis.com/auth/chrome.management.reports.readonly'
-        'https://www.googleapis.com/auth/cloud-identity.policies'
-        'https://www.googleapis.com/auth/cloud-platform'
-    ) -join ','
-
     $adcPath = Join-Path (Join-Path $env:APPDATA 'gcloud') 'application_default_credentials.json'
 
     $shouldAuth = $true
@@ -380,7 +452,7 @@ function Invoke-CepbotSetup {
     }
 
     if ($shouldAuth) {
-        Invoke-Native { gcloud auth application-default login --scopes=$scopes }
+        Invoke-Native { gcloud auth application-default login --scopes=$OAuthScopes }
         if (-not (Assert-ExitCode 'ADC authentication')) {
             Write-Host '   ADC authentication was cancelled or failed. Re-run to try again.' -ForegroundColor Yellow
             return
@@ -390,7 +462,7 @@ function Invoke-CepbotSetup {
 
     # ------ 6. Quota project --------------------------------------------------
 
-    Write-Step '6/8  GCP quota project'
+    Write-Step
 
     $adcFile = Join-Path (Join-Path $env:APPDATA 'gcloud') 'application_default_credentials.json'
     $projectId = $null
@@ -449,7 +521,7 @@ function Invoke-CepbotSetup {
     if (Test-Path $adcFile) {
         try {
             $adcJson = Get-Content $adcFile -Raw | ConvertFrom-Json
-            if ($adcJson.quota_project_id -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+            if ($adcJson.quota_project_id -match $ProjectIdPattern) {
                 $projectId = $adcJson.quota_project_id
             }
         }
@@ -460,7 +532,7 @@ function Invoke-CepbotSetup {
         $projectLines = Invoke-Native { gcloud config get-value project 2>$null } | Out-String
         foreach ($line in $projectLines -split '\r?\n') {
             $l = $line.Trim()
-            if ($l -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+            if ($l -match $ProjectIdPattern) {
                 $projectId = $l
                 break
             }
@@ -471,7 +543,7 @@ function Invoke-CepbotSetup {
     $needsSelection = $true
 
     if ($projectId) {
-        Write-Host "   Current project: $projectId"
+        Write-Host "   Current project: $projectId" -ForegroundColor White
         $response = Read-HostSafe '   Use this project? (Y/n/list)'
         if (-not $response) { $response = '' }
         $response = $response.Trim().ToLower()
@@ -489,8 +561,10 @@ function Invoke-CepbotSetup {
     }
 
     if ($needsSelection) {
-        Write-Host '   Fetching your GCP projects...'
-        $projectListRaw = Invoke-Native { gcloud projects list --format="value(projectId,name)" --sort-by=~createTime --limit=20 } | Out-String
+        Write-Activity 'Fetching your GCP projects...'
+        $projectListRaw = Invoke-Native { gcloud projects list --format="value(projectId,name)" --sort-by=~createTime --limit=$ProjectListLimit } | Out-String
+        Complete-Activity -Status Ok -Message 'Projects loaded'
+
         $projects = @()
         foreach ($line in $projectListRaw -split '\r?\n') {
             $l = $line.Trim()
@@ -498,7 +572,7 @@ function Invoke-CepbotSetup {
             $parts = $l -split '\t', 2
             $projId = $parts[0].Trim()
             $pname = if ($parts.Length -gt 1) { $parts[1].Trim() } else { '' }
-            if ($projId -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+            if ($projId -match $ProjectIdPattern) {
                 $projects += [PSCustomObject]@{ Id = $projId; Name = $pname }
             }
         }
@@ -509,18 +583,26 @@ function Invoke-CepbotSetup {
         }
         else {
             Write-Host ''
+            $rule = [string]::new([char]0x2500, 32)
+            Write-Host "   $rule" -ForegroundColor DarkGray
             Write-Host '   Your GCP projects:' -ForegroundColor White
+            Write-Host ''
             for ($i = 0; $i -lt $projects.Count; $i++) {
                 $p = $projects[$i]
-                $display = "   [$($i + 1)] $($p.Id)"
+                $num = $i + 1
+                $color = if ($p.Id -eq $projectId) { 'Green' } else { 'White' }
+                $display = "   [$num] $($p.Id)"
                 if ($p.Name -and $p.Name -ne $p.Id) {
-                    $display += "  ($($p.Name))"
+                    Write-Host $display -ForegroundColor $color -NoNewline
+                    Write-Host "  ($($p.Name))" -ForegroundColor DarkGray
+                } else {
+                    Write-Host $display -ForegroundColor $color
                 }
-                Write-Host $display
             }
             Write-Host ''
             Write-Host '   [E] Enter a project ID manually' -ForegroundColor DarkGray
             Write-Host '   [C] Create a new project' -ForegroundColor DarkGray
+            Write-Host "   $rule" -ForegroundColor DarkGray
             Write-Host ''
             $response = Read-HostSafe "   Select (1-$($projects.Count), E, or C)"
             if (-not $response) { $response = '' }
@@ -531,7 +613,7 @@ function Invoke-CepbotSetup {
             $customId = Read-HostSafe '   Enter project ID'
             if (-not $customId) { $customId = '' }
             $customId = $customId.Trim()
-            if ($customId -match '^[a-z][a-z0-9-]{4,28}[a-z0-9]$') {
+            if ($customId -match $ProjectIdPattern) {
                 $projectId = $customId
             }
             else {
@@ -549,14 +631,14 @@ function Invoke-CepbotSetup {
             $cvc2 = "$($consonants[$rng.Next($consonants.Length)])$($vowels[$rng.Next($vowels.Length)])$($consonants[$rng.Next($consonants.Length)])"
             $newProjectId = "mcp-$cvc1-$cvc2"
 
-            Write-Host "   Creating project $newProjectId..."
+            Write-Activity "Creating project $newProjectId..."
             $null = Invoke-Native { gcloud projects create $newProjectId 2>$null }
             if ($LASTEXITCODE -ne 0) {
-                Write-Fail "Could not create project $newProjectId."
+                Complete-Activity -Status Fail -Message "Could not create project $newProjectId."
                 return
             }
+            Complete-Activity -Status Ok -Message "Created project: $newProjectId"
             $projectId = $newProjectId
-            Write-Ok "Created project: $newProjectId"
         }
         else {
             $num = 0
@@ -580,23 +662,19 @@ function Invoke-CepbotSetup {
 
     # --- 6e. Enable required APIs ---
     if ($projectId) {
-        $requiredApis = @(
-            'serviceusage.googleapis.com'
-            'admin.googleapis.com'
-            'chromemanagement.googleapis.com'
-            'cloudidentity.googleapis.com'
-        )
-        Write-Host "   Enabling required APIs on $projectId..."
+        Write-Activity "Enabling required APIs on $projectId..."
         $allApisOk = $true
-        foreach ($api in $requiredApis) {
+        foreach ($api in $RequiredApis) {
             $null = Invoke-Native { gcloud services enable $api --project $projectId 2>$null }
             if ($LASTEXITCODE -ne 0) {
-                Write-Warn "   Could not enable $api (the agent will retry at runtime)."
                 $allApisOk = $false
             }
         }
         if ($allApisOk) {
-            Write-Ok 'All required APIs enabled.'
+            Complete-Activity -Status Ok -Message 'All required APIs enabled'
+        }
+        else {
+            Complete-Activity -Status Warn -Message 'Some APIs could not be enabled (the agent will retry at runtime)'
         }
     }
 
@@ -607,7 +685,7 @@ function Invoke-CepbotSetup {
 
     # ------ 7. Gemini CLI configuration ----------------------------------------
 
-    Write-Step '7/8  Gemini CLI configuration'
+    Write-Step
 
     $geminiDir = Join-Path $env:USERPROFILE '.gemini'
     $geminiSettings = Join-Path $geminiDir 'settings.json'
@@ -651,7 +729,7 @@ function Invoke-CepbotSetup {
 
     # ------ 8. Install extension ----------------------------------------------
 
-    Write-Step '8/8  Install cepbot Gemini extension'
+    Write-Step
 
     # Uninstall first if already present — reinstalling over an existing
     # extension crashes the Gemini CLI with a libuv assertion failure.
@@ -664,23 +742,23 @@ function Invoke-CepbotSetup {
     # 2>$null suppresses Node deprecation warnings and EPERM noise from
     # directory scanning.  Failures are expected and ignored.
     $ErrorActionPreference = 'Continue'
-    gemini extensions uninstall chrome-enterprise-premium 2>$null | Out-Null
+    gemini extensions uninstall $ExtensionId 2>$null | Out-Null
     $ErrorActionPreference = 'Stop'
 
-    Write-Host '   Registering extension...'
+    Write-Activity 'Registering extension...'
     # Pipe "Y" to auto-confirm the "Do you want to continue? [Y/n]" prompt.
     # Exit codes are unreliable (libuv assertion crash returns random
     # negative codes on success), so we verify via the enablement file.
     # 2>$null suppresses stderr noise; stdout stays on the console TTY.
     $ErrorActionPreference = 'Continue'
-    'Y' | gemini extensions install https://github.com/timfee/cepbot 2>$null
+    'Y' | gemini extensions install $GitHubUrl 2>$null
     $installExitCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
 
     if ($installExitCode -eq 41) {
+        Complete-Activity -Status Warn -Message 'Extension install needs Gemini CLI authentication first.'
         # Exit code 41 = FatalAuthenticationError.  Launch gemini
         # interactively so the user can complete browser sign-in, then retry.
-        Write-Warn 'Extension install needs Gemini CLI authentication first.'
         Write-Host ''
         Write-Host '   Launching Gemini CLI for first-time sign-in.' -ForegroundColor Yellow
         Write-Host '   A browser window will open - complete the sign-in there.' -ForegroundColor Yellow
@@ -694,9 +772,9 @@ function Invoke-CepbotSetup {
             $ErrorActionPreference = 'Stop'
         }
         Write-Host ''
-        Write-Host '   Retrying extension install...'
+        Write-Activity 'Retrying extension install...'
         $ErrorActionPreference = 'Continue'
-        'Y' | gemini extensions install https://github.com/timfee/cepbot 2>$null
+        'Y' | gemini extensions install $GitHubUrl 2>$null
         $ErrorActionPreference = 'Stop'
     }
 
@@ -706,25 +784,41 @@ function Invoke-CepbotSetup {
     if (Test-Path $enablementFile) {
         try {
             $enablement = Get-Content $enablementFile -Raw | ConvertFrom-Json
-            if ($null -ne (Get-Member -InputObject $enablement -Name 'chrome-enterprise-premium' -MemberType NoteProperty)) {
+            if ($null -ne (Get-Member -InputObject $enablement -Name $ExtensionId -MemberType NoteProperty)) {
                 $extensionOk = $true
             }
         }
         catch { }
     }
     if ($extensionOk) {
-        Write-Ok 'cepbot extension installed'
+        Complete-Activity -Status Ok -Message "$ProductName extension installed"
     }
     else {
-        Write-Fail 'Extension install did not register. Try manually: gemini extensions install https://github.com/timfee/cepbot'
+        Write-Fail "Extension install did not register. Try manually: gemini extensions install $GitHubUrl"
         return
     }
 
     # ------ done --------------------------------------------------------------
 
     Write-Host ''
+    $bar = [string]::new([char]0x2501, 35)
+    Write-Host "  $bar" -ForegroundColor Green
     Write-Host '  Setup complete!' -ForegroundColor Green
-    Write-Host '  Run "gemini" to start using the Chrome Enterprise Premium Bot.' -ForegroundColor White
+    Write-Host "  $bar" -ForegroundColor Green
+    Write-Host ''
+    $nodeVer = node --version
+    Write-Host "   Node.js     $nodeVer" -ForegroundColor White
+    $gcloudVer = (Invoke-Native { gcloud version } | Select-Object -First 1)
+    Write-Host "   gcloud      $gcloudVer" -ForegroundColor White
+    Write-Host '   Gemini CLI  installed' -ForegroundColor White
+    if ($projectId) {
+        Write-Host "   Project     $projectId" -ForegroundColor White
+    }
+    if ($activeAccount) {
+        Write-Host "   Account     $activeAccount" -ForegroundColor White
+    }
+    Write-Host ''
+    Write-Host "  Run `"gemini`" to start using $ProductName." -ForegroundColor White
     Write-Host ''
 
     } # end try
@@ -737,5 +831,5 @@ function Invoke-CepbotSetup {
 }
 
 # Run the setup, then clean up the function from the caller's scope.
-Invoke-CepbotSetup
-Remove-Item -Path Function:\Invoke-CepbotSetup -ErrorAction SilentlyContinue
+Invoke-CepMcpServerSetup
+Remove-Item -Path Function:\Invoke-CepMcpServerSetup -ErrorAction SilentlyContinue

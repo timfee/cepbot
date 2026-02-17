@@ -1,6 +1,6 @@
 # CLI Testing Guide
 
-How to test the cepbot MCP server end-to-end from your terminal — on macOS,
+How to test the CEP MCP Server end-to-end from your terminal — on macOS,
 Linux, or Windows.
 
 ## Quick start
@@ -179,7 +179,7 @@ If bootstrap fails, you'll see:
 
 ```
 [bootstrap] ✗ <error message>
-cepbot MCP server running in DEGRADED mode on stdio
+cep-mcp-server running in DEGRADED mode on stdio
 ```
 
 In degraded mode, all tools except `retry_bootstrap` return an error. Use the
@@ -255,7 +255,7 @@ The most realistic test — connect the server to an actual MCP-aware client.
 ```json
 {
   "mcpServers": {
-    "cepbot": {
+    "cep-mcp-server": {
       "command": "node",
       "args": ["/absolute/path/to/mcp-server/dist/index.js"]
     }
@@ -269,7 +269,7 @@ Config file location:
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
 
-After saving, restart Claude Desktop. The cepbot tools should appear in the
+After saving, restart Claude Desktop. The CEP MCP Server tools should appear in the
 tools menu.
 
 **Gemini CLI:**

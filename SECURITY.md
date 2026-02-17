@@ -2,7 +2,7 @@
 
 ## Scope
 
-Cepbot is an **unofficial**, self-hosted MCP server for Chrome Enterprise
+CEP MCP Server is an **unofficial**, self-hosted MCP server for Chrome Enterprise
 Premium. It runs locally and authenticates using your own Google Cloud
 Application Default Credentials. No data is sent to third-party services beyond
 the Google APIs it wraps.
@@ -31,7 +31,7 @@ to remain anonymous).
 - **Never commit credentials.** Use Application Default Credentials via
   `gcloud auth application-default login`; do not store tokens or service
   account keys in the repository.
-- **Restrict API scopes.** Grant only the OAuth scopes required by cepbot.
+- **Restrict API scopes.** Grant only the OAuth scopes required by CEP MCP Server.
 - **Review before running.** This is community software provided as-is under
   the Apache-2.0 license. Audit the source before deploying it in your
   environment.

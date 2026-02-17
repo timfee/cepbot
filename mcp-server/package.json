@@ -1,5 +1,5 @@
 {
-  "name": "cepbot",
+  "name": "cep-mcp-server",
   "version": "0.1.0",
   "description": "A CEP self-hosted MCP server (Unofficial)",
   "license": "Apache-2.0",

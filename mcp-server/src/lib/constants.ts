@@ -22,6 +22,7 @@ export const API_BASE_URLS = {
 export const SERVICE_NAMES = {
   ADMIN_SDK: "admin.googleapis.com",
   CHROME_MANAGEMENT: "chromemanagement.googleapis.com",
+  CHROME_POLICY: "chromepolicy.googleapis.com",
   CLOUD_IDENTITY: "cloudidentity.googleapis.com",
 } as const;
 

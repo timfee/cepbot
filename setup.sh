@@ -82,6 +82,7 @@ REQUIRED_APIS=(
   "serviceusage.googleapis.com"
   "admin.googleapis.com"
   "chromemanagement.googleapis.com"
+  "chromepolicy.googleapis.com"
   "cloudidentity.googleapis.com"
 )
 

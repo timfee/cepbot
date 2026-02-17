@@ -281,6 +281,7 @@ describe("bootstrap", () => {
     const [, apis] = vi.mocked(ensureApisEnabled).mock.calls[0];
     expect(apis).toContain("admin.googleapis.com");
     expect(apis).toContain("chromemanagement.googleapis.com");
+    expect(apis).toContain("chromepolicy.googleapis.com");
     expect(apis).toContain("cloudidentity.googleapis.com");
   });
 

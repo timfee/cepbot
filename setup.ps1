@@ -137,6 +137,9 @@ function Invoke-CepMcpServerSetup {
         $width = try { [Console]::WindowWidth } catch { 80 }
         Write-Host ("`r" + (' ' * ($width - 1))) -NoNewline
         Write-Host "`r" -NoNewline
+        # Note: 'Fail' only prints — the caller must `return` after
+        # Complete-Activity -Status Fail to stop execution.  This matches
+        # the Write-Fail / return pattern used throughout the script.
         switch ($Status) {
             'Ok'   { Write-Ok $Message }
             'Skip' { Write-Skip $Message }

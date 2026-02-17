@@ -66,8 +66,8 @@ function Invoke-CepMcpServerSetup {
         'Gemini CLI configuration'
         "Install $ProductName Gemini extension"
     )
-    $TotalSteps         = $StepTitles.Count
-    $script:CurrentStep = 0
+    $TotalSteps = $StepTitles.Count
+    $Counter    = @{ Step = 0 }
 
     # ---------- console encoding ---------------------------------------------
 
@@ -97,9 +97,9 @@ function Invoke-CepMcpServerSetup {
 
     function Write-Step {
         param([string]$Message)
-        $script:CurrentStep++
-        $label = if ($Message) { $Message } else { $StepTitles[$script:CurrentStep - 1] }
-        Write-Host "`n[$script:CurrentStep/$TotalSteps]  $label" -ForegroundColor Cyan
+        $Counter.Step++
+        $label = if ($Message) { $Message } else { $StepTitles[$Counter.Step - 1] }
+        Write-Host "`n[$($Counter.Step)/$TotalSteps]  $label" -ForegroundColor Cyan
     }
 
     function Write-Ok {
@@ -836,4 +836,3 @@ function Invoke-CepMcpServerSetup {
 # Run the setup, then clean up the function from the caller's scope.
 Invoke-CepMcpServerSetup
 Remove-Item -Path Function:\Invoke-CepMcpServerSetup -ErrorAction SilentlyContinue
-Remove-Variable -Name CurrentStep -Scope Script -ErrorAction SilentlyContinue

@@ -1,16 +1,16 @@
 {
-  "name": "cepbot-root",
+  "name": "cep-mcp-server-root",
   "private": true,
   "scripts": {
-    "build": "npm run build -w cepbot",
-    "check": "npm run check -w cepbot",
-    "dev": "npm run dev -w cepbot",
-    "fix": "npm run fix -w cepbot",
-    "start": "npm run start -w cepbot",
-    "test": "npm run test -w cepbot",
-    "test:e2e": "npm run test:e2e -w cepbot",
-    "test:watch": "npm run test:watch -w cepbot",
-    "typecheck": "npm run typecheck -w cepbot"
+    "build": "npm run build -w cep-mcp-server",
+    "check": "npm run check -w cep-mcp-server",
+    "dev": "npm run dev -w cep-mcp-server",
+    "fix": "npm run fix -w cep-mcp-server",
+    "start": "npm run start -w cep-mcp-server",
+    "test": "npm run test -w cep-mcp-server",
+    "test:e2e": "npm run test:e2e -w cep-mcp-server",
+    "test:watch": "npm run test:watch -w cep-mcp-server",
+    "typecheck": "npm run typecheck -w cep-mcp-server"
   },
   "workspaces": ["mcp-server"]
 }
